@@ -1,0 +1,12 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom styles for sidebar and transitions */
+.ps-sidebar-container {
+  transition: width 0.3s ease;
+}
+.nav-link {
+  transition: background-color 0.3s, color 0.3s;
+}

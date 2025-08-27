@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "5000:5000"
+    environment:
+      - SSH_HOST=${SSH_HOST}
+      - SSH_USERNAME=${SSH_USERNAME}
+      - SSH_PASSWORD=${SSH_PASSWORD}
+    volumes:
+      - ./backend:/app  # Mount for development, remove in production
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:80"  # Frontend on port 5173, served by Nginx on 80
+    depends_on:
+      - backend
