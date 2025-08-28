@@ -46,7 +46,7 @@ function App() {
             }}
           >
             <MenuItem
-              component={<NavLink to="/summary" />}
+              component={<NavLink to="/" />}
               icon={<BarChart size={20} />}
               data-tooltip-id="tooltip-summary"
               data-tooltip-content="View device summary"
@@ -116,7 +116,7 @@ function App() {
                 transition={{ duration: 0.3 }}
               >
                 <Routes>
-                  <Route path="/summary" element={<SummaryPage />} />
+                  <Route path="/" element={<SummaryPage />} />
                   <Route path="/display-configure" element={<DisplayConfigurePage />} />
                   <Route path="/about" element={<div className="p-4 text-gray-700">About Self-Healing...</div>} />
                 </Routes>
