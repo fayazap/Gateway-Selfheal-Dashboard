@@ -8,6 +8,7 @@ import { Sidebar, Menu, MenuItem } from 'react-pro-sidebar';
 import { Home, Settings, Info, BarChart } from 'lucide-react';
 import SummaryPage from './pages/SummaryPage.jsx';
 import DisplayConfigurePage from './pages/DisplayConfigurePage.jsx';
+import AboutPage from './pages/AboutPage.jsx'
 
 function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -35,16 +36,21 @@ function App() {
             />
           </div>
           <Menu
-            menuItemStyles={{
-              button: ({ active }) => ({
-                backgroundColor: active ? '#E8F5E9' : 'transparent',
-                color: '#424242',
-                '&:hover': {
-                  backgroundColor: '#E0E0E0',
-                },
-              }),
-            }}
-          >
+              menuItemStyles={{
+                button: ({ active }) => ({
+                  backgroundColor: active ? '#9253c5ff' : 'transparent', // tinno-green-700
+                  color: active ? 'white' : '#424242',
+                  fontWeight: active ? '600' : '500',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                  transition: 'background-color 0.3s, color 0.3s',
+                  '&:hover': {
+                    backgroundColor: '#624494ff', // tinno-green-600
+                    color: 'white',
+                  },
+                }),
+              }}
+            >
             <MenuItem
               component={<NavLink to="/" />}
               icon={<BarChart size={20} />}
@@ -75,27 +81,30 @@ function App() {
         {/* Main Content */}
         <div className="flex-1">
           {/* Header */}
-          <header className="p-4 bg-white shadow-md">
+          <header className="p-4 bg-gradient-to-r from-tinno-green-700 to-tinno-green-600 shadow-lg">
             <div className="flex items-center justify-between">
-              <div className="flex items-center">
+              <div className="flex items-center space-x-4">
                 <button
                   onClick={toggleSidebar}
-                  className="p-2 mr-2 text-gray-600 hover:bg-gray-200 rounded"
+                  className="p-2 text-white hover:bg-tinno-green-100/20 rounded transition-colors duration-300"
+                  aria-label="Toggle sidebar"
                 >
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
+                    <path d="M4 6h16M4 12h16M4 18h16" />
                   </svg>
                 </button>
-                <h1 className="text-2xl font-semibold text-gray-800">
-                  Self-Healing Dashboard
-                </h1>
-                <span className="ml-2 text-sm text-gray-500">
-                  Experience uninterrupted connectivity with intelligent self-healing
-                </span>
+                <div>
+                  <h1 className="text-3xl font-bold tracking-wide text-white">
+                    Self-Healing Dashboard
+                  </h1>
+                  <p className="text-l font-bold text-white-300">
+                    Experience uninterrupted connectivity with intelligent self-healing
+                  </p>
+                </div>
               </div>
-              <div className="flex items-center">
+              <div>
                 <span
-                  className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-purple-100 text-green-800"
+                  className="inline-flex items-center px-4 py-1 font-semibold rounded-full text-sm bg-white text-tinno-green-700 shadow-md"
                   data-tooltip-id="tooltip-status"
                   data-tooltip-content="Gateway is online"
                 >
@@ -118,7 +127,7 @@ function App() {
                 <Routes>
                   <Route path="/" element={<SummaryPage />} />
                   <Route path="/display-configure" element={<DisplayConfigurePage />} />
-                  <Route path="/about" element={<div className="p-4 text-gray-700">About Self-Healing...</div>} />
+                  <Route path="/about" element={<AboutPage />} />
                 </Routes>
               </motion.div>
             </AnimatePresence>
