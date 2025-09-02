@@ -25,8 +25,8 @@ ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, T
 function SummaryPage() {
   const [summary, setSummary] = useState({});
   const [selfheal, setSelfheal] = useState({
-    lastRebootReason: 'N/A',
-    lastRebootTime: 'N/A',
+    lastRebootReason: 'No History',
+    lastRebootTime: 'No History',
     rebootCount: 0,
     avgCpuThreshold: 0,
     avgMemoryThreshold: 0,
@@ -336,15 +336,15 @@ function SummaryPage() {
             <div className="space-y-2">
               <div className="flex justify-between items-center py-1 border-b border-gray-100">
                 <span className="text-gray-600 text-sm font-medium">Device Name:</span>
-                <span className="text-gray-900 font-semibold text-sm">{summary.hostname || 'Unknown'}</span>
+                <span className="text-gray-900 font-semibold text-sm">PON Gateway</span>
               </div>
               <div className="flex justify-between items-center py-1 border-b border-gray-100">
                 <span className="text-gray-600 text-sm font-medium">Model:</span>
-                <span className="text-gray-900 text-sm">{summary.deviceModel || 'N/A'}</span>
+                <span className="text-gray-900 text-sm">B521FG</span>
               </div>
               <div className="flex justify-between items-center py-1 border-b border-gray-100">
                 <span className="text-gray-600 text-sm font-medium">Manufacturer:</span>
-                <span className="text-gray-900 text-sm">{summary.manufacturer || 'N/A'}</span>
+                <span className="text-gray-900 text-sm">Tinno</span>
               </div>
               <div className="flex justify-between items-center py-1">
                 <span className="text-gray-600 text-sm font-medium">Firmware Version:</span>

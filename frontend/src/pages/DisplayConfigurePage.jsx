@@ -54,14 +54,14 @@ function DisplayConfigurePage() {
     >
       {/* Tabs for Display and Configure */}
       <Card className="bg-white shadow-lg rounded-xl overflow-hidden border border-gray-200">
-        <Card.Header className="bg-blue-200 from-tinno-green-700 to-tinno-green-600 text-white p-4">
+        <Card.Header className="bg-purple-200 from-tinno-green-700 to-tinno-green-600 text-white p-4">
           <Tabs
             activeKey={activeTab}
             onSelect={(k) => setActiveTab(k)}
             className="mb-0"
             variant="pills"
           >
-            <Tab eventKey="display" title={<span><Server className="mr-2" size={18} /> Display</span>} />
+            <Tab eventKey="display" className="bg-purple-700" title={<span><Server className="mr-2" size={18} /> Display</span>} />
             <Tab eventKey="configure" title={<span><Settings className="mr-2" size={18} /> Configure</span>} />
           </Tabs>
         </Card.Header>

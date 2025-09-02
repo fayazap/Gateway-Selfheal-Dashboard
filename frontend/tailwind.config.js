@@ -11,10 +11,10 @@ export default {
       },
       colors: {
         'tinno-green': {
-          700: '#445faaff',
-          600: '#437ea0ff',
-          100: '#e8e8f5ff',
-          50: '#e9f2f8ff',
+          700: '#9253c5ff',
+          600: '#624494ff',
+          100: '#69529eff',
+          50: '#dac5ffff',
         },
         'tinno-gray': {
           200: '#F5F5F5',
