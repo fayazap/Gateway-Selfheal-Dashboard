@@ -16,6 +16,10 @@ function DisplayConfigurePage() {
     setLoading(true);
     axios.get('/api/selfheal')
       .then(res => {
+        console.log('API Response:', res.data); // Debug: Log the API response
+        if (!res.data || !res.data.params) {
+          throw new Error('Invalid API response: params not found');
+        }
         setSelfheal(res.data);
         setFormData(Object.fromEntries(
           Object.entries(res.data.params).filter(([key]) =>
@@ -23,7 +27,10 @@ function DisplayConfigurePage() {
           ).map(([key, value]) => [key, value])
         ));
       })
-      .catch(err => setError(err.message))
+      .catch(err => {
+        console.error('API Error:', err); // Debug: Log the error
+        setError(err.message || 'Failed to fetch selfheal data');
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -37,9 +44,15 @@ function DisplayConfigurePage() {
       .then(res => {
         setSuccess(`Updated ${key} to ${res.data.updatedValue}`);
         // Refresh selfheal data after successful update
-        axios.get('/api/selfheal').then(res => setSelfheal(res.data));
+        axios.get('/api/selfheal').then(res => {
+          console.log('Updated API Response:', res.data); // Debug: Log the updated response
+          setSelfheal(res.data);
+        });
       })
-      .catch(err => setError(err.message));
+      .catch(err => {
+        console.error('Update Error:', err); // Debug: Log the update error
+        setError(err.message || 'Failed to update parameter');
+      });
   };
 
   if (loading) return <div className="text-center py-10 text-gray-600">Loading...</div>;
@@ -78,24 +91,30 @@ function DisplayConfigurePage() {
                   Selfheal Parameters
                 </Card.Header>
                 <Card.Body>
-                  <Table striped bordered hover className="text-gray-700">
-                    <thead>
-                      <tr>
-                        <th className="bg-tinno-green-100 text-tinno-green-700 font-medium p-2">Parameter</th>
-                        <th className="bg-tinno-green-100 text-tinno-green-700 font-medium p-2">Value</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {Object.entries(selfheal.params).map(([key, value]) => (
-                        !key.includes('Reboot.') && (
-                          <tr key={key} className="hover:bg-tinno-green-50 transition-colors">
-                            <td className="p-2">{key}</td>
-                            <td className="p-2">{value}</td>
-                          </tr>
-                        )
-                      ))}
-                    </tbody>
-                  </Table>
+                  {Object.keys(selfheal.params).length === 0 ? (
+                    <Alert variant="warning" className="m-2">
+                      No parameters available to display.
+                    </Alert>
+                  ) : (
+                    <Table striped bordered hover className="text-gray-700">
+                      <thead>
+                        <tr>
+                          <th className="bg-tinno-green-100 text-tinno-green-700 font-medium p-2">Parameter</th>
+                          <th className="bg-tinno-green-100 text-tinno-green-700 font-medium p-2">Value</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Object.entries(selfheal.params).map(([key, value]) => (
+                          !key.includes('Reboot.') && (
+                            <tr key={key} className="hover:bg-tinno-green-50 transition-colors">
+                              <td className="p-2">{key.replace('X_TINNO-COM_SelfHeal.', '')}</td>
+                              <td className="p-2">{value}</td>
+                            </tr>
+                          )
+                        ))}
+                      </tbody>
+                    </Table>
+                  )}
                 </Card.Body>
               </Card>
 
@@ -105,22 +124,28 @@ function DisplayConfigurePage() {
                   Reboot Logs
                 </Card.Header>
                 <Card.Body>
-                  <Table striped bordered hover className="text-gray-700">
-                    <thead>
-                      <tr>
-                        <th className="bg-tinno-green-100 text-tinno-green-700 font-medium p-2">Reason</th>
-                        <th className="bg-tinno-green-100 text-tinno-green-700 font-medium p-2">Time</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {selfheal.reboots.map((log, index) => (
-                        <tr key={index} className="hover:bg-tinno-green-50 transition-colors">
-                          <td className="p-2">{log.reason}</td>
-                          <td className="p-2">{log.time}</td>
+                  {selfheal.reboots.length === 0 ? (
+                    <Alert variant="info" className="m-2">
+                      No reboot logs available.
+                    </Alert>
+                  ) : (
+                    <Table striped bordered hover className="text-gray-700">
+                      <thead>
+                        <tr>
+                          <th className="bg-tinno-green-100 text-tinno-green-700 font-medium p-2">Reason</th>
+                          <th className="bg-tinno-green-100 text-tinno-green-700 font-medium p-2">Time</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </Table>
+                      </thead>
+                      <tbody>
+                        {selfheal.reboots.map((log, index) => (
+                          <tr key={index} className="hover:bg-tinno-green-50 transition-colors">
+                            <td className="p-2">{log.reason}</td>
+                            <td className="p-2">{log.time}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </Table>
+                  )}
                 </Card.Body>
               </Card>
             </>
@@ -133,26 +158,32 @@ function DisplayConfigurePage() {
                 Configure Self-Healing Parameters
               </Card.Header>
               <Card.Body>
-                <Form>
-                  {Object.keys(formData).map(key => (
-                    <Row key={key} className="mb-4 align-items-center">
-                      <Col md={4}><Form.Label className="text-gray-700">{key}</Form.Label></Col>
-                      <Col md={6}>
-                        <Form.Control
-                          name={key}
-                          value={formData[key] || ''}
-                          onChange={handleChange}
-                          className="border-tinno-gray-500"
-                        />
-                      </Col>
-                      <Col md={2}>
-                        <Button variant="success" onClick={() => handleSubmit(key)} className="w-100">
-                          Update
-                        </Button>
-                      </Col>
-                    </Row>
-                  ))}
-                </Form>
+                {Object.keys(formData).length === 0 ? (
+                  <Alert variant="warning" className="m-2">
+                    No configurable parameters available.
+                  </Alert>
+                ) : (
+                  <Form>
+                    {Object.keys(formData).map(key => (
+                      <Row key={key} className="mb-4 align-items-center">
+                        <Col md={4}><Form.Label className="text-gray-700">{key.replace('X_TINNO-COM_SelfHeal.', '')}</Form.Label></Col>
+                        <Col md={6}>
+                          <Form.Control
+                            name={key}
+                            value={formData[key] || ''}
+                            onChange={handleChange}
+                            className="border-tinno-gray-500"
+                          />
+                        </Col>
+                        <Col md={2}>
+                          <Button variant="success" onClick={() => handleSubmit(key)} className="w-100">
+                            Update
+                          </Button>
+                        </Col>
+                      </Row>
+                    ))}
+                  </Form>
+                )}
               </Card.Body>
             </Card>
           )}
