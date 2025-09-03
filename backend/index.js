@@ -151,7 +151,7 @@ app.get('/api/selfheal', async (req, res) => {
     }
 
     // Get last reboot details
-    const lastReboot = reboots.length > 0 ? reboots[reboots.length - 1] : { reason: 'N/A', time: 'N/A' };
+    const lastReboot = reboots.length > 0 ? reboots[reboots.length - 1] : { reason: 'No History', time: 'No History' };
 
     // Add avgCpuThreshold and avgMemoryThreshold
     const avgCpuThreshold = parseInt(params['X_TINNO-COM_SelfHeal.AvgCPUThreshold'] || 0);
