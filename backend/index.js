@@ -10,13 +10,12 @@ const port = 5000;
 app.use(cors());
 app.use(bodyParser.json());
 
-
 // SSH config using environment variables
 const sshConfig = {
-  host: process.env.SSH_HOST || '192.168.246.160', // Default to '192.168.246.157' if not provided
+  host: process.env.SSH_HOST || '192.168.246.151',
   port: 22,
-  username: process.env.SSH_USERNAME || 'root',    // Default to 'root' if not provided
-  password: process.env.SSH_PASSWORD || 'root'     // Default to 'root' if not provided
+  username: process.env.SSH_USERNAME || 'root',
+  password: process.env.SSH_PASSWORD || 'root'
 };
 
 // Helper to execute SSH command and return output
@@ -41,7 +40,7 @@ function sshExec(command) {
   });
 }
 
-// Parse ubus-cli output into object (key: value, handles reboots)
+// Parse ubus-cli output into object
 function parseUbusOutput(output) {
   const lines = output.split('\n').filter(line => line.trim() && !line.startsWith('>'));
   const result = {};
@@ -49,11 +48,29 @@ function parseUbusOutput(output) {
     if (line.includes('=')) {
       const [key, value] = line.split('=');
       result[key.trim()] = value.trim();
-    } else if (line.endsWith('.')) {
-      // Handle reboot entries like X_TINNO-COM_SelfHeal.Reboot.1.
     }
   });
   return result;
+}
+
+// Load data from file or initialize
+async function loadData(filePath) {
+  try {
+    const data = await fs.readFile(filePath, 'utf8');
+    return JSON.parse(data) || [];
+  } catch (err) {
+    console.warn(`Failed to load ${filePath}, initializing empty: ${err.message}`);
+    return [];
+  }
+}
+
+// Save data to file
+async function saveData(filePath, data) {
+  try {
+    await fs.writeFile(filePath, JSON.stringify(data, null, 2));
+  } catch (err) {
+    console.error(`Failed to save ${filePath}: ${err.message}`);
+  }
 }
 
 // Load stats from file or initialize
@@ -79,7 +96,6 @@ async function saveStats(filePath, stats) {
 // API: Fetch device summary
 app.get('/api/summary', async (req, res) => {
   try {
-    // Basic device info
     const hostname = await sshExec('cat /proc/sys/kernel/hostname');
     const uptime = await sshExec('uptime -p || uptime | cut -d"," -f1 | cut -d" " -f3-');
     const cpuUsage = await sshExec('awk \'/^cpu / {usage=($2+$4)*100/($2+$4+$5); printf "%.1f%%\\n", usage}\' /proc/stat');
@@ -89,13 +105,11 @@ app.get('/api/summary', async (req, res) => {
     const defaultGateway = await sshExec('ip route | grep default | awk \'{print $3}\' | head -1');
     const dnsServers = await sshExec('cat /etc/resolv.conf | grep nameserver | awk \'{print $2}\' | tr \'\\n\' \', \' | sed \'s/,$//\'');
 
-    // Advanced info
     const firmwareVersion = await sshExec('cat /etc/openwrt_release | grep DISTRIB_RELEASE | cut -d"\'" -f2 || uname -r');
     const deviceModelRaw = await sshExec('cat /proc/device-tree/model');
     const deviceModel = deviceModelRaw ? deviceModelRaw.trim() : 'N/A';
     const manufacturer = await sshExec('cat /proc/device-tree/compatible | cut -d, -f1 || echo "Unknown"');
 
-    // Update stats files
     const cpuStats = await loadStats('cpu_stats.json');
     const newCpuValue = parseFloat(cpuUsage) || 0;
     cpuStats.push({ time: new Date().toISOString(), value: newCpuValue });
@@ -108,9 +122,8 @@ app.get('/api/summary', async (req, res) => {
     if (memoryStats.length > 20) memoryStats.shift();
     await saveStats('memory_stats.json', memoryStats);
 
-    // Add temperature (assuming a thermal zone file exists, adjust path if needed)
     const tempRaw = await sshExec('cat /sys/class/thermal/thermal_zone0/temp || echo 0');
-    const tempCelsius = parseInt(tempRaw) / 1000 || 0; // Convert millidegrees to degrees
+    const tempCelsius = parseInt(tempRaw) / 1000 || 0;
     const tempStats = await loadStats('temp_stats.json');
     tempStats.push({ time: new Date().toISOString(), value: tempCelsius });
     if (tempStats.length > 20) tempStats.shift();
@@ -140,7 +153,6 @@ app.get('/api/selfheal', async (req, res) => {
     const output = await sshExec('ubus-cli X_TINNO-COM_SelfHeal.?');
     const params = parseUbusOutput(output);
 
-    // Extract reboot logs
     const reboots = [];
     const rebootCount = parseInt(params['X_TINNO-COM_SelfHeal.RebootNumberOfEntries'] || 0);
     for (let i = 1; i <= rebootCount; i++) {
@@ -150,10 +162,8 @@ app.get('/api/selfheal', async (req, res) => {
       });
     }
 
-    // Get last reboot details
     const lastReboot = reboots.length > 0 ? reboots[reboots.length - 1] : { reason: 'No History', time: 'No History' };
 
-    // Add avgCpuThreshold and avgMemoryThreshold
     const avgCpuThreshold = parseInt(params['X_TINNO-COM_SelfHeal.AvgCPUThreshold'] || 0);
     const avgMemoryThreshold = parseInt(params['X_TINNO-COM_SelfHeal.AvgMemoryThreshold'] || 0);
 
@@ -178,14 +188,14 @@ app.post('/api/configure', async (req, res) => {
 
   try {
     const output = await sshExec(`ubus-cli ${param}=${value}`);
-    const updated = await sshExec(`ubus-cli ${param}?`); // Verify
+    const updated = await sshExec(`ubus-cli ${param}?`);
     res.json({ success: true, updatedValue: updated.split('=')[1]?.trim() });
   } catch (err) {
     res.status(500).json({ error: `SSH error: ${err.message}` });
   }
 });
 
-// New API to fetch historical stats
+// API: Fetch historical stats
 app.get('/api/stats', async (req, res) => {
   try {
     const cpuStats = await loadStats('cpu_stats.json');
@@ -195,6 +205,148 @@ app.get('/api/stats', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: `File read error: ${err.message}` });
   }
+});
+
+// API: Fetch LCM data
+app.get('/api/lcm', async (req, res) => {
+  try {
+    const output = await sshExec('ubus-cli SoftwareModules.?');
+    const data = parseUbusOutput(output);
+
+    const executionUnits = [];
+    const totalUnits = parseInt(data['SoftwareModules.ExecutionUnitNumberOfEntries'] || 0);
+    for (let i = 1; i <= totalUnits; i++) {
+      const unitOutput = await sshExec(`ubus-cli SoftwareModules.ExecutionUnit.${i}.?`);
+      const unitData = parseUbusOutput(unitOutput);
+      executionUnits.push(unitData);
+    }
+
+    const deploymentUnits = [];
+    const totalDeployments = parseInt(data['SoftwareModules.DeploymentUnitNumberOfEntries'] || 0);
+    for (let i = 1; i <= totalDeployments; i++) {
+      const unitOutput = await sshExec(`ubus-cli SoftwareModules.DeploymentUnit.${i}.?`);
+      const unitData = parseUbusOutput(unitOutput);
+      deploymentUnits.push(unitData);
+    }
+
+    // Load container library
+    const containerLibrary = await loadData('containers.json');
+
+    res.json({
+      SoftwareModules: data,
+      ExecutionUnits: executionUnits,
+      DeploymentUnits: deploymentUnits,
+      ContainerLibrary: containerLibrary,
+    });
+  } catch (err) {
+    res.status(500).json({ error: `SSH error: ${err.message}` });
+  }
+});
+
+// API: Add container to library
+app.post('/api/lcm/add', async (req, res) => {
+  const { url, name, description, vendor, version } = req.body;
+  if (!url || !name) return res.status(400).json({ error: 'URL and name are required' });
+
+  try {
+    const containerLibrary = await loadData('containers.json');
+    const newContainer = {
+      url,
+      name,
+      description: description || '',
+      vendor: vendor || '',
+      version: version || '',
+      uuid: Date.now().toString(), // Simple UUID generation based on timestamp
+      addedAt: new Date().toISOString(),
+    };
+    containerLibrary.push(newContainer);
+    await saveData('containers.json', containerLibrary);
+    console.log(`Added container: ${name}, UUID: ${newContainer.uuid}`);
+    res.json({ success: true, message: 'Container added to library', container: newContainer });
+  } catch (err) {
+    res.status(500).json({ error: `Failed to add container: ${err.message}` });
+  }
+});
+
+// API: Delete container from library (simulated)
+app.post('/api/lcm/delete', async (req, res) => {
+  const { name } = req.body;
+  try {
+    let containerLibrary = await loadData('containers.json');
+    containerLibrary = containerLibrary.filter(c => c.name !== name);
+    await saveData('containers.json', containerLibrary);
+    console.log(`Deleted container: ${name}`);
+    res.json({ success: true, message: 'Container deleted from library' });
+  } catch (err) {
+    res.status(500).json({ error: `Failed to delete container: ${err.message}` });
+  }
+});
+
+// API: Install container on device
+app.post('/api/lcm/install', async (req, res) => {
+  const { url, uuid, name } = req.body;
+  try {
+    const installCommand = `ubus-cli "SoftwareModules.InstallDU(ExecutionEnvRef='generic', URL='${url}', UUID='${uuid}', Privileged=false, NumRequiredUIDs=10, HostObject=[{Source='/tmp/usp_cli',Destination='/var/usp_cli', Options='type=mount,bind'}])"`;
+    await sshExec(installCommand);
+    console.log(`Installed container: ${name} with UUID: ${uuid}`);
+    res.json({ success: true, message: 'Container installed on device' });
+  } catch (err) {
+    res.status(500).json({ error: `Failed to install container: ${err.message}` });
+  }
+});
+
+// API: Stop container
+app.post('/api/lcm/stop', async (req, res) => {
+  const { unitIndex } = req.body;
+  try {
+    const stopCommand = `ubus-cli 'SoftwareModules.ExecutionUnit.${unitIndex}.SetRequestedState(RequestedState = "Idle")'`;
+    await sshExec(stopCommand);
+    console.log(`Stopped ExecutionUnit.${unitIndex}`);
+    res.json({ success: true, message: 'Container stopped' });
+  } catch (err) {
+    res.status(500).json({ error: `Failed to stop container: ${err.message}` });
+  }
+});
+
+// API: Uninstall container
+app.post('/api/lcm/uninstall', async (req, res) => {
+  const { unitIndex, deploymentIndex } = req.body;
+  try {
+    const stopCommand = `ubus-cli 'SoftwareModules.ExecutionUnit.${unitIndex}.SetRequestedState(RequestedState = "Idle")'`;
+    const uninstallCommand = `ubus-cli 'SoftwareModules.DeploymentUnit.${deploymentIndex}.Uninstall()'`;
+    await sshExec(stopCommand);
+    await sshExec(uninstallCommand);
+    console.log(`Uninstalled DeploymentUnit.${deploymentIndex} and stopped ExecutionUnit.${unitIndex}`);
+    res.json({ success: true, message: 'Container uninstalled' });
+  } catch (err) {
+    res.status(500).json({ error: `Failed to uninstall container: ${err.message}` });
+  }
+});
+
+app.post('/api/test-connection', async (req, res) => {
+  const { host } = req.body;
+  if (!host) return res.status(400).json({ error: 'Host is required' });
+
+  const tempConfig = { ...sshConfig, host };
+  const conn = new Client();
+  return new Promise((resolve, reject) => {
+    conn.on('ready', () => {
+      conn.end();
+      resolve(res.json({ success: true, message: 'Connection successful' }));
+    }).on('error', (err) => {
+      conn.end();
+      reject(res.status(500).json({ error: `Connection failed: ${err.message}` }));
+    }).connect(tempConfig);
+  }).catch(err => err);
+});
+
+app.post('/api/update-ssh-host', async (req, res) => {
+  const { host } = req.body;
+  if (!host) return res.status(400).json({ error: 'Host is required' });
+
+  sshConfig.host = host;
+  console.log(`Updated SSH host to: ${host}`);
+  res.json({ success: true, message: 'SSH host updated' });
 });
 
 app.listen(port, () => {

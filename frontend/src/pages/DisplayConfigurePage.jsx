@@ -67,14 +67,14 @@ function DisplayConfigurePage() {
     >
       {/* Tabs for Display and Configure */}
       <Card className="bg-white shadow-lg rounded-xl overflow-hidden border border-gray-200">
-        <Card.Header className="bg-purple-200 from-tinno-green-700 to-tinno-green-600 text-white p-4">
+        <Card.Header className="bg-green-100 from-tinno-green-700 to-tinno-green-600 text-white p-4">
           <Tabs
             activeKey={activeTab}
             onSelect={(k) => setActiveTab(k)}
             className="mb-0"
             variant="pills"
           >
-            <Tab eventKey="display" className="bg-purple-700" title={<span><Server className="mr-2" size={18} /> Display</span>} />
+            <Tab eventKey="display" className="bg-green-700" title={<span><Server className="mr-2" size={18} /> Display</span>} />
             <Tab eventKey="configure" title={<span><Settings className="mr-2" size={18} /> Configure</span>} />
           </Tabs>
         </Card.Header>
@@ -121,11 +121,11 @@ function DisplayConfigurePage() {
               {/* Reboot Logs */}
               <Card className="border-0 shadow-sm">
                 <Card.Header className="bg-tinno-green-50 text-tinno-green-700 p-3 font-semibold">
-                  Reboot Logs
+                  SelfHeal Reboot Logs
                 </Card.Header>
                 <Card.Body>
                   {selfheal.reboots.length === 0 ? (
-                    <Alert variant="info" className="m-2">
+                    <Alert variant="info" className="m-2 bg-blue-50">
                       No reboot logs available.
                     </Alert>
                   ) : (
