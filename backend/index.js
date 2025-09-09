@@ -218,7 +218,7 @@ app.get('/api/lcm', async (req, res) => {
     for (let i = 1; i <= totalUnits; i++) {
       const unitOutput = await sshExec(`ubus-cli SoftwareModules.ExecutionUnit.${i}.?`);
       const unitData = parseUbusOutput(unitOutput);
-      executionUnits.push({ index: i, ...unitData });
+      executionUnits.push(unitData);
     }
 
     const deploymentUnits = [];
@@ -226,71 +226,17 @@ app.get('/api/lcm', async (req, res) => {
     for (let i = 1; i <= totalDeployments; i++) {
       const unitOutput = await sshExec(`ubus-cli SoftwareModules.DeploymentUnit.${i}.?`);
       const unitData = parseUbusOutput(unitOutput);
-      deploymentUnits.push({ index: i, ...unitData });
+      deploymentUnits.push(unitData);
     }
 
     // Load container library
     const containerLibrary = await loadData('containers.json');
-
-    // Correlate ExecutionUnits and DeploymentUnits by DUID/EUID/UUID
-    const allContainers = [];
-    const seenIds = new Set();
-
-    deploymentUnits.forEach(unit => {
-      const duidKeys = ['SoftwareModules.DeploymentUnit.{i}.DUID', 'SoftwareModules.DeploymentUnit.{i}.UUID'];
-      const duid = duidKeys.map(key => unit[key]?.replace(/"/g, '')).find(id => id);
-      if (duid && !seenIds.has(duid)) {
-        seenIds.add(duid);
-        allContainers.push({
-          index: unit.index,
-          name: unit['SoftwareModules.DeploymentUnit.{i}.Name']?.replace(/"/g, '') || 'Unnamed',
-          url: unit['SoftwareModules.DeploymentUnit.{i}.URL']?.replace(/"/g, '') || 'N/A',
-          description: unit['SoftwareModules.DeploymentUnit.{i}.Description']?.replace(/"/g, '') || 'N/A',
-          vendor: unit['SoftwareModules.DeploymentUnit.{i}.Vendor']?.replace(/"/g, '') || 'N/A',
-          version: unit['SoftwareModules.DeploymentUnit.{i}.Version']?.replace(/"/g, '') || 'N/A',
-          alias: unit['SoftwareModules.DeploymentUnit.{i}.Alias']?.replace(/"/g, '') || 'N/A',
-          duid: duid,
-          installed: unit['SoftwareModules.DeploymentUnit.{i}.Installed']?.replace(/"/g, '') || 'N/A',
-          lastUpdate: unit['SoftwareModules.DeploymentUnit.{i}.LastUpdate']?.replace(/"/g, '') || 'N/A',
-          status: 'Installed',
-          uuid: unit['SoftwareModules.DeploymentUnit.{i}.UUID']?.replace(/"/g, '') || 'N/A',
-        });
-      }
-    });
-
-    executionUnits.forEach(unit => {
-      const euidKeys = ['SoftwareModules.ExecutionUnit.{i}.EUID', 'SoftwareModules.ExecutionUnit.{i}.UUID'];
-      const euid = euidKeys.map(key => unit[key]?.replace(/"/g, '')).find(id => id);
-      if (euid) {
-        const existing = allContainers.find(c => c.duid === euid || c.uuid === euid);
-        if (existing) {
-          existing.status = unit['SoftwareModules.ExecutionUnit.{i}.Status']?.replace(/"/g, '') || existing.status;
-        } else if (!seenIds.has(euid)) {
-          seenIds.add(euid);
-          allContainers.push({
-            index: unit.index,
-            name: unit['SoftwareModules.ExecutionUnit.{i}.Name']?.replace(/"/g, '') || 'Unnamed',
-            url: 'N/A',
-            description: unit['SoftwareModules.ExecutionUnit.{i}.Description']?.replace(/"/g, '') || 'N/A',
-            vendor: unit['SoftwareModules.ExecutionUnit.{i}.Vendor']?.replace(/"/g, '') || 'N/A',
-            version: unit['SoftwareModules.ExecutionUnit.{i}.Version']?.replace(/"/g, '') || 'N/A',
-            alias: unit['SoftwareModules.ExecutionUnit.{i}.Alias']?.replace(/"/g, '') || 'N/A',
-            duid: euid,
-            installed: unit['SoftwareModules.ExecutionUnit.{i}.CreationTime']?.replace(/"/g, '') || 'N/A',
-            lastUpdate: 'N/A',
-            status: unit['SoftwareModules.ExecutionUnit.{i}.Status']?.replace(/"/g, '') || 'N/A',
-            uuid: unit['SoftwareModules.ExecutionUnit.{i}.UUID']?.replace(/"/g, '') || 'N/A',
-          });
-        }
-      }
-    });
 
     res.json({
       SoftwareModules: data,
       ExecutionUnits: executionUnits,
       DeploymentUnits: deploymentUnits,
       ContainerLibrary: containerLibrary,
-      ExistingContainers: allContainers,
     });
   } catch (err) {
     res.status(500).json({ error: `SSH error: ${err.message}` });
@@ -340,25 +286,10 @@ app.post('/api/lcm/delete', async (req, res) => {
 app.post('/api/lcm/install', async (req, res) => {
   const { url, uuid, name } = req.body;
   try {
-    // Fetch current state to determine the next available index
-    const output = await sshExec('ubus-cli SoftwareModules.?');
-    const data = parseUbusOutput(output);
-    const totalDeployments = parseInt(data['SoftwareModules.DeploymentUnitNumberOfEntries'] || 0);
-    const totalUnits = parseInt(data['SoftwareModules.ExecutionUnitNumberOfEntries'] || 0);
-    let nextIndex = 1;
-
-    // Find the lowest available index
-    while (true) {
-      const depUnitExists = await sshExec(`ubus-cli SoftwareModules.DeploymentUnit.${nextIndex}.?`).then(() => true).catch(() => false);
-      const execUnitExists = await sshExec(`ubus-cli SoftwareModules.ExecutionUnit.${nextIndex}.?`).then(() => true).catch(() => false);
-      if (!depUnitExists && !execUnitExists) break;
-      nextIndex++;
-    }
-
     const installCommand = `ubus-cli "SoftwareModules.InstallDU(ExecutionEnvRef='generic', URL='${url}', UUID='${uuid}', Privileged=false, NumRequiredUIDs=10, HostObject=[{Source='/tmp/usp_cli',Destination='/var/usp_cli', Options='type=mount,bind'}])"`;
     await sshExec(installCommand);
-    console.log(`Installed container: ${name} with UUID: ${uuid} at index ${nextIndex}`);
-    res.json({ success: true, message: 'Container installed on device', index: nextIndex });
+    console.log(`Installed container: ${name} with UUID: ${uuid}`);
+    res.json({ success: true, message: 'Container installed on device' });
   } catch (err) {
     res.status(500).json({ error: `Failed to install container: ${err.message}` });
   }
