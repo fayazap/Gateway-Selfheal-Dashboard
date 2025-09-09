@@ -48,6 +48,7 @@ function parseUbusOutput(output) {
     if (line.includes('=')) {
       const [key, value] = line.split('=');
       result[key.trim()] = value.trim();
+      console.log(`Parsed: ${key.trim()} = ${value.trim()}`); // Debug log
     }
   });
   return result;
@@ -151,6 +152,7 @@ app.get('/api/summary', async (req, res) => {
 app.get('/api/selfheal', async (req, res) => {
   try {
     const output = await sshExec('ubus-cli X_TINNO-COM_SelfHeal.?');
+    console.log('Raw Selfheal Output:', output); // Debug log
     const params = parseUbusOutput(output);
 
     const reboots = [];
@@ -166,6 +168,7 @@ app.get('/api/selfheal', async (req, res) => {
 
     const avgCpuThreshold = parseInt(params['X_TINNO-COM_SelfHeal.AvgCPUThreshold'] || 0);
     const avgMemoryThreshold = parseInt(params['X_TINNO-COM_SelfHeal.AvgMemoryThreshold'] || 0);
+    const avgTemperatureThreshold = parseInt(params['X_TINNO-COM_SelfHeal.AvgTemperatureThreshold'] || 120);
 
     res.json({
       params,
@@ -175,6 +178,7 @@ app.get('/api/selfheal', async (req, res) => {
       rebootCount: rebootCount,
       avgCpuThreshold,
       avgMemoryThreshold,
+      avgTemperatureThreshold,
     });
   } catch (err) {
     res.status(500).json({ error: `SSH error: ${err.message}` });
@@ -276,6 +280,7 @@ app.post('/api/lcm/delete', async (req, res) => {
     containerLibrary = containerLibrary.filter(c => c.name !== name);
     await saveData('containers.json', containerLibrary);
     console.log(`Deleted container: ${name}`);
+    await sshExec('/etc/init.d/timingila restart'); // Restart to rearrange indices
     res.json({ success: true, message: 'Container deleted from library' });
   } catch (err) {
     res.status(500).json({ error: `Failed to delete container: ${err.message}` });
@@ -289,6 +294,7 @@ app.post('/api/lcm/install', async (req, res) => {
     const installCommand = `ubus-cli "SoftwareModules.InstallDU(ExecutionEnvRef='generic', URL='${url}', UUID='${uuid}', Privileged=false, NumRequiredUIDs=10, HostObject=[{Source='/tmp/usp_cli',Destination='/var/usp_cli', Options='type=mount,bind'}])"`;
     await sshExec(installCommand);
     console.log(`Installed container: ${name} with UUID: ${uuid}`);
+    await sshExec('/etc/init.d/timingila restart'); // Restart to rearrange indices
     res.json({ success: true, message: 'Container installed on device' });
   } catch (err) {
     res.status(500).json({ error: `Failed to install container: ${err.message}` });
@@ -308,6 +314,18 @@ app.post('/api/lcm/stop', async (req, res) => {
   }
 });
 
+app.post('/api/lcm/start', async (req, res) => {
+  const { unitIndex } = req.body;
+  try {
+    const startCommand = `ubus-cli 'SoftwareModules.ExecutionUnit.${unitIndex}.SetRequestedState(RequestedState = "Active")'`;
+    await sshExec(startCommand);
+    console.log(`Started ExecutionUnit.${unitIndex}`);
+    res.json({ success: true, message: 'Container started' });
+  } catch (err) {
+    res.status(500).json({ error: `Failed to start container: ${err.message}` });
+  }
+});
+
 // API: Uninstall container
 app.post('/api/lcm/uninstall', async (req, res) => {
   const { unitIndex, deploymentIndex } = req.body;
@@ -317,6 +335,7 @@ app.post('/api/lcm/uninstall', async (req, res) => {
     await sshExec(stopCommand);
     await sshExec(uninstallCommand);
     console.log(`Uninstalled DeploymentUnit.${deploymentIndex} and stopped ExecutionUnit.${unitIndex}`);
+    await sshExec('/etc/init.d/timingila restart'); // Restart to rearrange indices
     res.json({ success: true, message: 'Container uninstalled' });
   } catch (err) {
     res.status(500).json({ error: `Failed to uninstall container: ${err.message}` });

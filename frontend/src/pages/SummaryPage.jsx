@@ -30,6 +30,7 @@ function SummaryPage() {
     rebootCount: 0,
     avgCpuThreshold: 0,
     avgMemoryThreshold: 0,
+    avgTemperatureThreshold: 0, // Added to match backend data
   });
   const [cpuData, setCpuData] = useState({
     datasets: [
@@ -46,6 +47,7 @@ function SummaryPage() {
   const [tempData, setTempData] = useState({
     datasets: [
       { label: 'Temperature (°C)', data: [], borderColor: '#ff9800', backgroundColor: 'rgba(255, 152, 0, 0.2)', fill: true, tension: 0.4, pointRadius: 0, pointHoverRadius: 5 },
+      { label: 'Threshold (0°C)', data: [], borderColor: '#dc3545', backgroundColor: 'rgba(220, 53, 69, 0.1)', fill: false, borderDash: [5, 5], pointRadius: 0 }, // Added threshold dataset
     ],
   });
   const [error, setError] = useState('');
@@ -76,17 +78,26 @@ function SummaryPage() {
         axios.get('/api/stats'),
       ]);
       if (summaryResponse.status === 200) setSummary(summaryResponse.data);
+
       if (selfhealResponse.status === 200) {
         const newSelfheal = {
           lastRebootReason: selfhealResponse.data.lastRebootReason,
           lastRebootTime: selfhealResponse.data.lastRebootTime,
           rebootCount: selfhealResponse.data.rebootCount,
-          avgCpuThreshold: parseInt(selfhealResponse.data.avgCpuThreshold || selfhealResponse.data.params['X_TINNO-COM_SelfHeal.AvgCPUThreshold'] || 0),
-          avgMemoryThreshold: parseInt(selfhealResponse.data.avgMemoryThreshold || selfhealResponse.data.params['X_TINNO-COM_SelfHeal.AvgMemoryThreshold'] || 0),
+          avgCpuThreshold: selfhealResponse.data.avgCpuThreshold,
+          avgMemoryThreshold: selfhealResponse.data.avgMemoryThreshold,
+          avgTemperatureThreshold: selfhealResponse.data.avgTemperatureThreshold,
         };
         setSelfheal(newSelfheal);
+
+        // Now update chart data using latest thresholds
         if (statsResponse.status === 200) {
-          updateChartsFromStats(statsResponse.data.cpuStats, statsResponse.data.memoryStats, statsResponse.data.tempStats);
+          updateChartsFromStats(
+            statsResponse.data.cpuStats,
+            statsResponse.data.memoryStats,
+            statsResponse.data.tempStats,
+            newSelfheal // <-- pass latest thresholds here
+          );
         }
       } else {
         throw new Error('Failed to load selfheal data');
@@ -98,7 +109,12 @@ function SummaryPage() {
     }
   };
 
-  const updateChartsFromStats = async (cpuStats = [], memoryStats = [], tempStats = []) => {
+  const updateChartsFromStats = async (
+    cpuStats = [],
+    memoryStats = [],
+    tempStats = [],
+    thresholds = { avgCpuThreshold: 0, avgMemoryThreshold: 0, avgTemperatureThreshold: 0 } // fallback if not passed
+  ) => {
     const formatTime = (isoTime) => new Date(isoTime);
     const limitLast20 = (data) => (data.length ? data.slice(-20) : []);
 
@@ -108,10 +124,11 @@ function SummaryPage() {
     const lastMemoryUsage = memoryData.datasets[0].data.length ? [...memoryData.datasets[0].data] : [];
     const lastMemoryThreshold = memoryData.datasets[1].data.length ? [...memoryData.datasets[1].data] : [];
     const lastTempData = tempData.datasets[0].data.length ? [...tempData.datasets[0].data] : [];
+    const lastTempThreshold = tempData.datasets[1].data.length ? [...tempData.datasets[1].data] : [];
 
-    // Update CPU Data
+    // Update CPU Data (using latest thresholds)
     const cpuUsageData = limitLast20(cpuStats).map(stat => ({ x: formatTime(stat.time), y: stat.value || 0 }));
-    const cpuThresholdData = limitLast20(cpuStats).map(stat => ({ x: formatTime(stat.time), y: selfheal.avgCpuThreshold }));
+    const cpuThresholdData = limitLast20(cpuStats).map(stat => ({ x: formatTime(stat.time), y: thresholds.avgCpuThreshold }));
     const shouldUpdateCpu = !cpuUsageData.length ? false : (
       !cpuData.datasets[0].data.length ||
       cpuUsageData.some((d, i) => Math.abs(d.y - (cpuData.datasets[0].data[i]?.y || 0)) > 0.5) ||
@@ -121,14 +138,14 @@ function SummaryPage() {
       setCpuData(prev => ({
         datasets: [
           { ...prev.datasets[0], data: cpuUsageData.length ? cpuUsageData : lastCpuUsage },
-          { ...prev.datasets[1], data: cpuThresholdData.length ? cpuThresholdData : lastCpuThreshold, label: `Threshold (${selfheal.avgCpuThreshold}%)` },
+          { ...prev.datasets[1], data: cpuThresholdData.length ? cpuThresholdData : lastCpuThreshold, label: `Threshold (${thresholds.avgCpuThreshold}%)` },
         ],
       }));
     }
 
-    // Update Memory Data
+    // Update Memory Data (using latest thresholds)
     const memoryUsageData = limitLast20(memoryStats).map(stat => ({ x: formatTime(stat.time), y: stat.value || 0 }));
-    const memoryThresholdData = limitLast20(memoryStats).map(stat => ({ x: formatTime(stat.time), y: selfheal.avgMemoryThreshold }));
+    const memoryThresholdData = limitLast20(memoryStats).map(stat => ({ x: formatTime(stat.time), y: thresholds.avgMemoryThreshold }));
     const shouldUpdateMemory = !memoryUsageData.length ? false : (
       !memoryData.datasets[0].data.length ||
       memoryUsageData.some((d, i) => Math.abs(d.y - (memoryData.datasets[0].data[i]?.y || 0)) > 0.5) ||
@@ -138,21 +155,24 @@ function SummaryPage() {
       setMemoryData(prev => ({
         datasets: [
           { ...prev.datasets[0], data: memoryUsageData.length ? memoryUsageData : lastMemoryUsage },
-          { ...prev.datasets[1], data: memoryThresholdData.length ? memoryThresholdData : lastMemoryThreshold, label: `Threshold (${selfheal.avgMemoryThreshold}%)` },
+          { ...prev.datasets[1], data: memoryThresholdData.length ? memoryThresholdData : lastMemoryThreshold, label: `Threshold (${thresholds.avgMemoryThreshold}%)` },
         ],
       }));
     }
 
-    // Update Temperature Data
+    // Update Temperature Data (using latest thresholds)
     const tempDataPoints = limitLast20(tempStats).map(stat => ({ x: formatTime(stat.time), y: stat.value || 0 }));
+    const tempThresholdData = limitLast20(tempStats).map(stat => ({ x: formatTime(stat.time), y: thresholds.avgTemperatureThreshold }));
     const shouldUpdateTemp = !tempDataPoints.length ? false : (
       !tempData.datasets[0].data.length ||
-      tempDataPoints.some((d, i) => Math.abs(d.y - (tempData.datasets[0].data[i]?.y || 0)) > 0.5)
+      tempDataPoints.some((d, i) => Math.abs(d.y - (tempData.datasets[0].data[i]?.y || 0)) > 0.5) ||
+      tempThresholdData.some((d, i) => d.y !== (tempData.datasets[1].data[i]?.y || 0))
     );
     if (shouldUpdateTemp) {
       setTempData(prev => ({
         datasets: [
           { ...prev.datasets[0], data: tempDataPoints.length ? tempDataPoints : lastTempData },
+          { ...prev.datasets[1], data: tempThresholdData.length ? tempThresholdData : lastTempThreshold, label: `Threshold (${thresholds.avgTemperatureThreshold}°C)` },
         ],
       }));
     }
@@ -231,18 +251,13 @@ function SummaryPage() {
       ...chartOptions.scales,
       y: {
         ...chartOptions.scales.y,
-        max: 80, // Adjust max for temperature (e.g., 0-80°C)
+        max: 150, // Adjusted to accommodate a potential 120°C threshold
         title: {
           display: true,
           text: 'Temperature (°C)',
           font: { size: 14, weight: 'bold' },
           color: '#333333',
         },
-      },
-    },
-    plugins: {
-      ...chartOptions.plugins,
-      title: {
       },
     },
   };
@@ -421,48 +436,47 @@ function SummaryPage() {
 
         {/* Graphs Section */}
         <div className="grid grid-cols-1 mt-4 lg:grid-cols-2 gap-6">
-        {/* CPU Graph */}
-        <div className="bg-white rounded-xl shadow-md p-6">
+          {/* CPU Graph */}
+          <div className="bg-white rounded-xl shadow-md p-6">
             <div className="flex justify-between items-center mb-4">
-            <h3 className="text-xl font-bold text-gray-800 flex items-center">
+              <h3 className="text-xl font-bold text-gray-800 flex items-center">
                 <Cpu className="w-6 h-6 mr-2 text-tinno-green-600" />
                 CPU Usage Graph
-            </h3>
+              </h3>
             </div>
             <div className="h-80">
-            <Line data={cpuData} options={chartOptions} ref={cpuChartRef} />
+              <Line data={cpuData} options={chartOptions} ref={cpuChartRef} />
             </div>
-        </div>
+          </div>
 
-        {/* Memory Graph */}
-        <div className="bg-white rounded-xl shadow-md p-6">
+          {/* Memory Graph */}
+          <div className="bg-white rounded-xl shadow-md p-6">
             <div className="flex justify-between items-center mb-4">
-            <h3 className="text-xl font-bold text-gray-800 flex items-center">
+              <h3 className="text-xl font-bold text-gray-800 flex items-center">
                 <MemoryStick className="w-6 h-6 mr-2 text-tinno-green-600" />
                 Memory Usage Graph
-            </h3>
+              </h3>
             </div>
             <div className="h-80">
-            <Line data={memoryData} options={chartOptions} ref={memoryChartRef} />
+              <Line data={memoryData} options={chartOptions} ref={memoryChartRef} />
             </div>
-        </div>
+          </div>
 
-        {/* Temperature Graph - centered in the grid */}
-        <div className="lg:col-span-2 flex justify-center">
+          {/* Temperature Graph - centered in the grid */}
+          <div className="lg:col-span-2 flex justify-center">
             <div className="bg-white rounded-xl shadow-md p-6 w-full lg:w-1/2">
-            <div className="flex justify-between items-center mb-4">
+              <div className="flex justify-between items-center mb-4">
                 <h3 className="text-xl font-bold text-gray-800 flex items-center">
-                <Thermometer className="w-6 h-6 mr-2 text-tinno-green-600" />
-                Temperature Graph
+                  <Thermometer className="w-6 h-6 mr-2 text-tinno-green-600" />
+                  Temperature Graph
                 </h3>
-            </div>
-            <div className="h-80">
+              </div>
+              <div className="h-80">
                 <Line data={tempData} options={tempChartOptions} ref={tempChartRef} />
+              </div>
             </div>
-            </div>
+          </div>
         </div>
-        </div>
-
       </div>
     </div>
   );

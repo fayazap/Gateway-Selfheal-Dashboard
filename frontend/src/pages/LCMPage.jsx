@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { BarChart, Plus, Trash2, Check } from 'lucide-react';
+import { BarChart, Plus, Trash2, Check, Play } from 'lucide-react';
 import axios from 'axios';
 
 function LCMPage() {
@@ -15,6 +15,7 @@ function LCMPage() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(null);
   const [showInstallConfirm, setShowInstallConfirm] = useState(null);
+  const [showStartConfirm, setShowStartConfirm] = useState(null);
   const [showStopConfirm, setShowStopConfirm] = useState(null);
   const [showUninstallConfirm, setShowUninstallConfirm] = useState(null);
   const [selectedContainer, setSelectedContainer] = useState(null);
@@ -25,7 +26,7 @@ function LCMPage() {
     vendor: '',
     version: '',
   });
-  const [usedUuids, setUsedUuids] = useState(new Set()); // Track used UUIDs
+  const [usedUuids, setUsedUuids] = useState(new Set());
 
   useEffect(() => {
     fetchData();
@@ -38,8 +39,8 @@ function LCMPage() {
       const summaryResponse = await axios.get('/api/summary');
       const summaryData = summaryResponse.data;
       const totalContainers = parseInt(lcmData.SoftwareModules?.['SoftwareModules.ExecutionUnitNumberOfEntries']?.replace(/"/g, '') || '0');
-      const executionUnits = lcmData.ExecutionUnits;
-      const deploymentUnits = lcmData.DeploymentUnits;
+      const executionUnits = lcmData.ExecutionUnits || [];
+      const deploymentUnits = lcmData.DeploymentUnits || [];
 
       const activeContainers = executionUnits.reduce((count, unit) => {
         const statusKey = Object.keys(unit).find(key => key.endsWith('.Status'));
@@ -53,41 +54,89 @@ function LCMPage() {
 
       const allContainers = [];
       const seenDuids = new Set();
-      const processUnit = (unit) => {
+      const containersMap = new Map();
+
+      // Process deploymentUnits first
+      deploymentUnits.forEach(unit => {
         const duidKey = Object.keys(unit).find(key => key.endsWith('.DUID') || key.endsWith('.EUID'));
         const uuidKey = Object.keys(unit).find(key => key.endsWith('.UUID'));
         const nameKey = Object.keys(unit).find(key => key.endsWith('.Name'));
         const statusKey = Object.keys(unit).find(key => key.endsWith('.Status'));
+        const urlKey = Object.keys(unit).find(key => key.endsWith('.URL'));
+        const descriptionKey = Object.keys(unit).find(key => key.endsWith('.Description'));
+        const vendorKey = Object.keys(unit).find(key => key.endsWith('.Vendor'));
+        const versionKey = Object.keys(unit).find(key => key.endsWith('.Version'));
+        const aliasKey = Object.keys(unit).find(key => key.endsWith('.Alias'));
+        const installedKey = Object.keys(unit).find(key => key.endsWith('.Installed') || key.endsWith('.CreationTime'));
+        const lastUpdateKey = Object.keys(unit).find(key => key.endsWith('.LastUpdate'));
+
         const duid = duidKey ? unit[duidKey]?.replace(/"/g, '') : uuidKey ? unit[uuidKey]?.replace(/"/g, '') : null;
 
-        if (duid && !seenDuids.has(duid)) {
-          seenDuids.add(duid);
-          allContainers.push({
-            ...unit,
+        if (duid) {
+          const containerData = {
             index: allContainers.length + 1,
             name: unit[nameKey]?.replace(/"/g, '') || 'Unnamed',
-            url: unit[Object.keys(unit).find(key => key.endsWith('.URL'))]?.replace(/"/g, '') || 'N/A',
-            description: unit[Object.keys(unit).find(key => key.endsWith('.Description'))]?.replace(/"/g, '') || 'N/A',
-            vendor: unit[Object.keys(unit).find(key => key.endsWith('.Vendor'))]?.replace(/"/g, '') || 'N/A',
-            version: unit[Object.keys(unit).find(key => key.endsWith('.Version'))]?.replace(/"/g, '') || 'N/A',
-            alias: unit[Object.keys(unit).find(key => key.endsWith('.Alias'))]?.replace(/"/g, '') || 'N/A',
+            url: urlKey ? unit[urlKey]?.replace(/"/g, '') : 'N/A',
+            description: descriptionKey ? unit[descriptionKey]?.replace(/"/g, '') : 'N/A',
+            vendor: vendorKey ? unit[vendorKey]?.replace(/"/g, '') : 'N/A',
+            version: versionKey ? unit[versionKey]?.replace(/"/g, '') : 'N/A',
+            alias: aliasKey ? unit[aliasKey]?.replace(/"/g, '') : 'N/A',
             duid: duid || 'N/A',
-            installed: unit[Object.keys(unit).find(key => key.endsWith('.Installed') || key.endsWith('.CreationTime'))]?.replace(/"/g, '') || 'N/A',
-            lastUpdate: unit[Object.keys(unit).find(key => key.endsWith('.LastUpdate'))]?.replace(/"/g, '') || 'N/A',
-            status: statusKey ? unit[statusKey]?.replace(/"/g, '') : 'N/A',
-            uuid: unit[Object.keys(unit).find(key => key.endsWith('.UUID'))]?.replace(/"/g, '') || 'N/A',
-          });
+            installed: installedKey ? unit[installedKey]?.replace(/"/g, '') : 'N/A',
+            lastUpdate: lastUpdateKey ? unit[lastUpdateKey]?.replace(/"/g, '') : 'N/A',
+            deploymentStatus: statusKey ? unit[statusKey]?.replace(/"/g, '') : 'N/A',
+            executionStatus: 'N/A',
+            uuid: uuidKey ? unit[uuidKey]?.replace(/"/g, '') : 'N/A',
+          };
+          containersMap.set(duid, containerData);
+          seenDuids.add(duid);
         }
-      };
+      });
 
-      deploymentUnits.forEach(processUnit);
-      executionUnits.forEach(processUnit);
+      // Process executionUnits and merge with deployment data
+      executionUnits.forEach(unit => {
+        const duidKey = Object.keys(unit).find(key => key.endsWith('.DUID') || key.endsWith('.EUID'));
+        const uuidKey = Object.keys(unit).find(key => key.endsWith('.UUID'));
+        const nameKey = Object.keys(unit).find(key => key.endsWith('.Name'));
+        const statusKey = Object.keys(unit).find(key => key.endsWith('.Status'));
+        const aliasKey = Object.keys(unit).find(key => key.endsWith('.Alias'));
+        const installedKey = Object.keys(unit).find(key => key.endsWith('.Installed') || key.endsWith('.CreationTime'));
+        const lastUpdateKey = Object.keys(unit).find(key => key.endsWith('.LastUpdate'));
+
+        const duid = duidKey ? unit[duidKey]?.replace(/"/g, '') : uuidKey ? unit[uuidKey]?.replace(/"/g, '') : null;
+
+        if (duid) {
+          let containerData = containersMap.get(duid);
+          if (!containerData) {
+            containerData = {
+              index: allContainers.length + 1,
+              name: unit[nameKey]?.replace(/"/g, '') || 'Unnamed',
+              url: 'N/A',
+              description: 'N/A',
+              vendor: 'N/A',
+              version: 'N/A',
+              alias: unit[aliasKey]?.replace(/"/g, '') || 'N/A',
+              duid: duid || 'N/A',
+              installed: unit[installedKey]?.replace(/"/g, '') || 'N/A',
+              lastUpdate: lastUpdateKey ? unit[lastUpdateKey]?.replace(/"/g, '') : 'N/A',
+              deploymentStatus: 'N/A',
+              executionStatus: statusKey ? unit[statusKey]?.replace(/"/g, '') : 'N/A',
+              uuid: uuidKey ? unit[uuidKey]?.replace(/"/g, '') : 'N/A',
+            };
+            seenDuids.add(duid);
+          } else {
+            containerData.executionStatus = statusKey ? unit[statusKey]?.replace(/"/g, '') : containerData.executionStatus;
+          }
+          containersMap.set(duid, containerData);
+        }
+      });
+
+      containersMap.forEach(value => allContainers.push(value));
 
       const newExistingContainers = allContainers;
       setExistingContainers(newExistingContainers);
-      setContainers(lcmData.ContainerLibrary || []); // Sync with backend storage
+      setContainers(lcmData.ContainerLibrary || []);
 
-      // Update used UUIDs from existing containers and library
       const allUuids = new Set([
         ...newExistingContainers.map(c => c.uuid),
         ...containers.map(c => c.uuid),
@@ -111,7 +160,7 @@ function LCMPage() {
           setContainers([...containers, response.data.container]);
           setNewContainer({ url: '', name: '', description: '', vendor: '', version: '' });
           setShowAddForm(false);
-          await fetchData(); // Refresh data after adding
+          await fetchData();
         }
       } catch (err) {
         console.error('Error adding container:', err);
@@ -126,7 +175,7 @@ function LCMPage() {
       const newContainers = containers.filter((_, i) => i !== index);
       setContainers(newContainers);
       setShowDeleteConfirm(null);
-      await fetchData(); // Refresh data after deleting
+      await fetchData();
     } catch (err) {
       console.error('Error deleting container:', err);
     }
@@ -135,47 +184,60 @@ function LCMPage() {
   const handleInstallContainer = async (index) => {
     const container = containers[index];
     try {
-        // Check if the container is already installed by comparing URLs
-        const isAlreadyInstalled = existingContainers.some(c => c.url === container.url);
-        if (isAlreadyInstalled) {
+      const isAlreadyInstalled = existingContainers.some(c => c.url === container.url);
+      if (isAlreadyInstalled) {
         alert(`Container ${container.name} is already installed on the device.`);
         setShowInstallConfirm(null);
         return;
-        }
+      }
 
-        // Generate a unique UUID by replacing the last digit
-        let newUuid = "00000000-0000-5000-b000-000000000001";
-        let lastDigit = 1;
-        while (usedUuids.has(newUuid)) {
-        lastDigit = (lastDigit % 9) + 1; // Cycle through 1-9
-        newUuid = `00000000-0000-5000-b000-00000000000${lastDigit}`;
-        }
-        usedUuids.add(newUuid);
-        setUsedUuids(new Set(usedUuids)); // Update state with new UUID
+      const generateUniqueLast12 = () => Math.floor(Math.random() * 0x1000000000000).toString(16).padStart(12, '0');
+      let newUuid = `00000000-0000-5000-b000-${generateUniqueLast12()}`;
+      let attempts = 0;
+      while (usedUuids.has(newUuid) && attempts < 100) {
+        newUuid = `00000000-0000-5000-b000-${generateUniqueLast12()}`;
+        attempts++;
+      }
+      if (attempts >= 100) throw new Error('Unable to generate a unique UUID after 100 attempts');
 
-        const response = await axios.post('/api/lcm/install', {
-        url: container.url,
-        uuid: newUuid,
-        name: container.name,
-        });
-        if (response.data.success) {
+      usedUuids.add(newUuid);
+      setUsedUuids(new Set(usedUuids));
+
+      const response = await axios.post('/api/lcm/install', { url: container.url, uuid: newUuid, name: container.name });
+      if (response.data.success) {
         const newContainers = containers.filter((_, i) => i !== index);
         setContainers(newContainers);
         setShowInstallConfirm(null);
-        await fetchData(); // Refresh data after installing
-        }
+        await fetchData();
+      }
     } catch (err) {
-        console.error('Error installing container:', err);
+      console.error('Error installing container:', err);
+    }
+  };
+
+  const handleStartContainer = async (index) => {
+    try {
+      await axios.post('/api/lcm/start', { unitIndex: existingContainers[index].index });
+      setShowStartConfirm(null);
+      await fetchData();
+    } catch (err) {
+      console.error('Error starting container:', err);
     }
   };
 
   const handleStopContainer = async (index) => {
     try {
-      await axios.post('/api/lcm/stop', { unitIndex: existingContainers[index].index });
+      // Optimistic update
+      const updatedContainers = [...existingContainers];
+      updatedContainers[index].executionStatus = 'Idle'; // Assume Idle after stop
+      setExistingContainers(updatedContainers);
       setShowStopConfirm(null);
-      await fetchData(); // Refresh data after stopping
+      await axios.post('/api/lcm/stop', { unitIndex: existingContainers[index].index });
+      await fetchData(); // Refresh with actual data
     } catch (err) {
       console.error('Error stopping container:', err);
+      // Revert optimistic update if failed
+      await fetchData();
     }
   };
 
@@ -188,7 +250,7 @@ function LCMPage() {
       const newContainers = existingContainers.filter((_, i) => i !== index);
       setExistingContainers(newContainers);
       setShowUninstallConfirm(null);
-      await fetchData(); // Refresh data after uninstalling
+      await fetchData();
     } catch (err) {
       console.error('Error uninstalling container:', err);
     }
@@ -423,20 +485,73 @@ function LCMPage() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               whileHover={{ scale: 1.03 }}
-              className="p-4 bg-gradient-to-br from-white to-gray-100 rounded-xl border border-gray-200 shadow-lg transition-all duration-300 cursor-pointer"
+              className="p-4 bg-gradient-to-br from-white to-gray-100 rounded-xl border border-gray-200 shadow-lg transition-all duration-300 cursor-pointer relative"
               onClick={() => handleViewDetails(container)}
             >
-              <h3 className="text-base font-semibold mb-3 text-gray-800">{container.name}</h3>
-              <div className="flex gap-1">
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={(e) => { e.stopPropagation(); setShowStopConfirm(index); }}
-                  className="flex-1 px-2 py-1 bg-yellow-600 text-white rounded-full hover:bg-yellow-700 transition-colors flex items-center justify-center gap-1 shadow-md text-xs"
-                >
-                  <Trash2 size={14} />
-                  <span className="text-xs">Stop</span>
-                </motion.button>
+              <div className="absolute top-2 left-2">
+                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                  container.executionStatus === 'Active' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+                }`}>
+                  {container.executionStatus || 'N/A'}
+                </span>
+              </div>
+              <div className="absolute top-2 right-2">
+                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                  container.deploymentStatus === 'Installed' ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'
+                }`}>
+                  {container.deploymentStatus || 'N/A'}
+                </span>
+              </div>
+
+              <h3 className="text-base font-semibold mt-2 mb-1 text-gray-800">{container.name}</h3>
+              <p className="text-xs text-gray-600 mb-1">Vendor: {container.vendor || 'N/A'}</p>
+              <p className="text-xs text-gray-600 mb-1">Version: {container.version || 'N/A'}</p>
+              <div className="flex gap-1 mt-2">
+                {container.executionStatus === 'Idle' && (
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={(e) => { e.stopPropagation(); setShowStartConfirm(index); }}
+                    className="flex-1 px-2 py-1 bg-tinno-green-700 text-white rounded-full hover:bg-tinno-green-600 transition-colors flex items-center justify-center gap-1 shadow-md text-xs"
+                  >
+                    <Play size={14} />
+                    <span className="text-xs">Start</span>
+                  </motion.button>
+                )}
+                {container.executionStatus === 'Active' && (
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={(e) => { e.stopPropagation(); setShowStopConfirm(index); }}
+                    className="flex-1 px-2 py-1 bg-yellow-600 text-white rounded-full hover:bg-yellow-700 transition-colors flex items-center justify-center gap-1 shadow-md text-xs"
+                  >
+                    <Trash2 size={14} />
+                    <span className="text-xs">Stop</span>
+                  </motion.button>
+                )}
+                {showStartConfirm === index && (
+                  <div className="mt-2 p-2 bg-green-50 rounded-lg border border-green-200">
+                    <p className="text-xs text-green-700">Are you sure you want to start {container.name}?</p>
+                    <div className="mt-2 flex justify-end gap-1">
+                      <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={(e) => { e.stopPropagation(); handleStartContainer(index); }}
+                        className="px-1 py-1 bg-tinno-green-700 text-white rounded-full hover:bg-tinno-green-600 text-xs"
+                      >
+                        Yes
+                      </motion.button>
+                      <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={(e) => { e.stopPropagation(); setShowStartConfirm(null); }}
+                        className="px-1 py-1 bg-gray-300 text-gray-800 rounded-full hover:bg-gray-400 text-xs"
+                      >
+                        No
+                      </motion.button>
+                    </div>
+                  </div>
+                )}
                 {showStopConfirm === index && (
                   <div className="mt-2 p-2 bg-yellow-50 rounded-lg border border-yellow-200">
                     <p className="text-xs text-yellow-700">Are you sure you want to stop {container.name}?</p>
@@ -495,13 +610,6 @@ function LCMPage() {
                   </div>
                 )}
               </div>
-              {container.status && (
-                <div className="mt-2 flex justify-end">
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                    {container.status}
-                  </span>
-                </div>
-              )}
             </motion.div>
           ))}
         </div>
@@ -526,38 +634,75 @@ function LCMPage() {
             <div className="space-y-2 text-sm text-gray-700">
               {('alias' in selectedContainer && selectedContainer.alias !== undefined) ? (
                 <>
-                  <p><strong className="text-gray-900">URL:</strong> {selectedContainer.url}</p>
-                  <p><strong className="text-gray-900">Description:</strong> {selectedContainer.description}</p>
-                  <p><strong className="text-gray-900">Vendor:</strong> {selectedContainer.vendor}</p>
-                  <p><strong className="text-gray-900">Version:</strong> {selectedContainer.version}</p>
-                  <p><strong className="text-gray-900">Alias:</strong> {selectedContainer.alias}</p>
-                  <p><strong className="text-gray-900">DUID:</strong> {selectedContainer.duid}</p>
-                  <p><strong className="text-gray-900">Installed:</strong> {selectedContainer.installed}</p>
-                  <p><strong className="text-gray-900">Last Update:</strong> {selectedContainer.lastUpdate}</p>
-                  <p><strong className="text-gray-900">Status:</strong> {selectedContainer.status}</p>
-                  <p><strong className="text-gray-900">UUID:</strong> {selectedContainer.uuid}</p>
+                  <p><strong className="text-gray-900">URL:</strong> {selectedContainer.url || 'N/A'}</p>
+                  <p><strong className="text-gray-900">Description:</strong> {selectedContainer.description || 'N/A'}</p>
+                  <p><strong className="text-gray-900">Vendor:</strong> {selectedContainer.vendor || 'N/A'}</p>
+                  <p><strong className="text-gray-900">Version:</strong> {selectedContainer.version || 'N/A'}</p>
+                  <p><strong className="text-gray-900">Alias:</strong> {selectedContainer.alias || 'N/A'}</p>
+                  <p><strong className="text-gray-900">DUID:</strong> {selectedContainer.duid || 'N/A'}</p>
+                  <p><strong className="text-gray-900">Installed:</strong> {selectedContainer.installed || 'N/A'}</p>
+                  <p><strong className="text-gray-900">Last Update:</strong> {selectedContainer.lastUpdate || 'N/A'}</p>
+                  <p><strong className="text-gray-900">Execution Status:</strong> {selectedContainer.executionStatus || 'N/A'}</p>
+                  <p><strong className="text-gray-900">Deployment Status:</strong> {selectedContainer.deploymentStatus || 'N/A'}</p>
+                  <p><strong className="text-gray-900">UUID:</strong> {selectedContainer.uuid || 'N/A'}</p>
                 </>
               ) : (
                 <>
-                  <p><strong className="text-gray-900">URL:</strong> {selectedContainer.url}</p>
-                  <p><strong className="text-gray-900">Description:</strong> {selectedContainer.description}</p>
-                  <p><strong className="text-gray-900">Vendor:</strong> {selectedContainer.vendor}</p>
-                  <p><strong className="text-gray-900">Version:</strong> {selectedContainer.version}</p>
+                  <p><strong className="text-gray-900">URL:</strong> {selectedContainer.url || 'N/A'}</p>
+                  <p><strong className="text-gray-900">Description:</strong> {selectedContainer.description || 'N/A'}</p>
+                  <p><strong className="text-gray-900">Vendor:</strong> {selectedContainer.vendor || 'N/A'}</p>
+                  <p><strong className="text-gray-900">Version:</strong> {selectedContainer.version || 'N/A'}</p>
                 </>
               )}
             </div>
             <div className="space-y-2 mt-4">
               {('alias' in selectedContainer && selectedContainer.alias !== undefined) ? (
                 <>
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={(e) => { e.stopPropagation(); setShowStopConfirm(existingContainers.findIndex(c => c.index === selectedContainer.index)); }}
-                    className="w-full px-3 py-1 bg-yellow-600 text-white rounded-full hover:bg-yellow-700 transition-colors flex items-center justify-center gap-1 shadow-md text-xs"
-                  >
-                    <Trash2 size={14} />
-                    <span className="text-xs">Stop</span>
-                  </motion.button>
+                  {selectedContainer.executionStatus === 'Idle' && (
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={(e) => { e.stopPropagation(); setShowStartConfirm(existingContainers.findIndex(c => c.index === selectedContainer.index)); }}
+                      className="w-full px-3 py-1 bg-tinno-green-700 text-white rounded-full hover:bg-tinno-green-600 transition-colors flex items-center justify-center gap-1 shadow-md text-xs"
+                    >
+                      <Play size={14} />
+                      <span className="text-xs">Start</span>
+                    </motion.button>
+                  )}
+                  {selectedContainer.executionStatus === 'Active' && (
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={(e) => { e.stopPropagation(); setShowStopConfirm(existingContainers.findIndex(c => c.index === selectedContainer.index)); }}
+                      className="w-full px-3 py-1 bg-yellow-600 text-white rounded-full hover:bg-yellow-700 transition-colors flex items-center justify-center gap-1 shadow-md text-xs"
+                    >
+                      <Trash2 size={14} />
+                      <span className="text-xs">Stop</span>
+                    </motion.button>
+                  )}
+                  {showStartConfirm === existingContainers.findIndex(c => c.index === selectedContainer.index) && (
+                    <div className="mt-2 p-2 bg-green-50 rounded-lg border border-green-200">
+                      <p className="text-xs text-green-700">Are you sure you want to start {selectedContainer.name}?</p>
+                      <div className="mt-2 flex justify-end gap-1">
+                        <motion.button
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={(e) => { e.stopPropagation(); handleStartContainer(existingContainers.findIndex(c => c.index === selectedContainer.index)); }}
+                          className="px-1 py-1 bg-tinno-green-700 text-white rounded-full hover:bg-tinno-green-600 text-xs"
+                        >
+                          Yes
+                        </motion.button>
+                        <motion.button
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={(e) => { e.stopPropagation(); setShowStartConfirm(null); }}
+                          className="px-1 py-1 bg-gray-300 text-gray-800 rounded-full hover:bg-gray-400 text-xs"
+                        >
+                          No
+                        </motion.button>
+                      </div>
+                    </div>
+                  )}
                   {showStopConfirm === existingContainers.findIndex(c => c.index === selectedContainer.index) && (
                     <div className="mt-2 p-2 bg-yellow-50 rounded-lg border border-yellow-200">
                       <p className="text-xs text-yellow-700">Are you sure you want to stop {selectedContainer.name}?</p>
