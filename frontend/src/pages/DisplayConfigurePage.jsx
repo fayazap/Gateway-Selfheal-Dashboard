@@ -121,7 +121,7 @@ function DisplayConfigurePage() {
               {/* Reboot Logs */}
               <Card className="border-0 shadow-sm">
                 <Card.Header className="bg-tinno-green-50 text-tinno-green-700 p-3 font-semibold">
-                  SelfHeal Reboot Logs
+                  SelfHeal Event Logs
                 </Card.Header>
                 <Card.Body>
                   {selfheal.reboots.length === 0 ? (

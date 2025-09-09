@@ -81,6 +81,14 @@ function App() {
             Summary
           </MenuItem>
           <MenuItem
+            component={<NavLink to="/lcm" />}
+            icon={<Server size={20} />}
+            data-tooltip-id="tooltip-lcm"
+            data-tooltip-content="Manage lifecycle of containers"
+          >
+            Services
+          </MenuItem>
+          <MenuItem
             component={<NavLink to="/display-configure" />}
             icon={<Home size={20} />}
             data-tooltip-id="tooltip-display"
@@ -95,14 +103,6 @@ function App() {
             data-tooltip-content="Learn about selfheal"
           >
             About
-          </MenuItem>
-          <MenuItem
-            component={<NavLink to="/lcm" />}
-            icon={<Server size={20} />}
-            data-tooltip-id="tooltip-lcm"
-            data-tooltip-content="Manage lifecycle of containers"
-          >
-            LCM
           </MenuItem>
         </Menu>
       </Sidebar>

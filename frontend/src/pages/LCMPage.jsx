@@ -37,10 +37,9 @@ function LCMPage() {
       const lcmData = lcmResponse.data;
       const summaryResponse = await axios.get('/api/summary');
       const summaryData = summaryResponse.data;
-
       const totalContainers = parseInt(lcmData.SoftwareModules?.['SoftwareModules.ExecutionUnitNumberOfEntries']?.replace(/"/g, '') || '0');
-      const executionUnits = lcmData.ExecutionUnits || [];
-      const deploymentUnits = lcmData.DeploymentUnits || [];
+      const executionUnits = lcmData.ExecutionUnits;
+      const deploymentUnits = lcmData.DeploymentUnits;
 
       const activeContainers = executionUnits.reduce((count, unit) => {
         const statusKey = Object.keys(unit).find(key => key.endsWith('.Status'));
@@ -52,14 +51,45 @@ function LCMPage() {
 
       setSummary({ totalContainers, activeContainers, totalMemoryUsed, totalCpuUsed });
 
-      // Use ExistingContainers from backend response
-      const allContainers = lcmData.ExistingContainers || [];
-      setExistingContainers(allContainers);
-      setContainers(lcmData.ContainerLibrary || []);
+      const allContainers = [];
+      const seenDuids = new Set();
+      const processUnit = (unit) => {
+        const duidKey = Object.keys(unit).find(key => key.endsWith('.DUID') || key.endsWith('.EUID'));
+        const uuidKey = Object.keys(unit).find(key => key.endsWith('.UUID'));
+        const nameKey = Object.keys(unit).find(key => key.endsWith('.Name'));
+        const statusKey = Object.keys(unit).find(key => key.endsWith('.Status'));
+        const duid = duidKey ? unit[duidKey]?.replace(/"/g, '') : uuidKey ? unit[uuidKey]?.replace(/"/g, '') : null;
+
+        if (duid && !seenDuids.has(duid)) {
+          seenDuids.add(duid);
+          allContainers.push({
+            ...unit,
+            index: allContainers.length + 1,
+            name: unit[nameKey]?.replace(/"/g, '') || 'Unnamed',
+            url: unit[Object.keys(unit).find(key => key.endsWith('.URL'))]?.replace(/"/g, '') || 'N/A',
+            description: unit[Object.keys(unit).find(key => key.endsWith('.Description'))]?.replace(/"/g, '') || 'N/A',
+            vendor: unit[Object.keys(unit).find(key => key.endsWith('.Vendor'))]?.replace(/"/g, '') || 'N/A',
+            version: unit[Object.keys(unit).find(key => key.endsWith('.Version'))]?.replace(/"/g, '') || 'N/A',
+            alias: unit[Object.keys(unit).find(key => key.endsWith('.Alias'))]?.replace(/"/g, '') || 'N/A',
+            duid: duid || 'N/A',
+            installed: unit[Object.keys(unit).find(key => key.endsWith('.Installed') || key.endsWith('.CreationTime'))]?.replace(/"/g, '') || 'N/A',
+            lastUpdate: unit[Object.keys(unit).find(key => key.endsWith('.LastUpdate'))]?.replace(/"/g, '') || 'N/A',
+            status: statusKey ? unit[statusKey]?.replace(/"/g, '') : 'N/A',
+            uuid: unit[Object.keys(unit).find(key => key.endsWith('.UUID'))]?.replace(/"/g, '') || 'N/A',
+          });
+        }
+      };
+
+      deploymentUnits.forEach(processUnit);
+      executionUnits.forEach(processUnit);
+
+      const newExistingContainers = allContainers;
+      setExistingContainers(newExistingContainers);
+      setContainers(lcmData.ContainerLibrary || []); // Sync with backend storage
 
       // Update used UUIDs from existing containers and library
       const allUuids = new Set([
-        ...allContainers.map(c => c.uuid),
+        ...newExistingContainers.map(c => c.uuid),
         ...containers.map(c => c.uuid),
       ].filter(uuid => uuid !== 'N/A' && uuid !== undefined));
       setUsedUuids(allUuids);
@@ -81,6 +111,7 @@ function LCMPage() {
           setContainers([...containers, response.data.container]);
           setNewContainer({ url: '', name: '', description: '', vendor: '', version: '' });
           setShowAddForm(false);
+          await fetchData(); // Refresh data after adding
         }
       } catch (err) {
         console.error('Error adding container:', err);
@@ -95,6 +126,7 @@ function LCMPage() {
       const newContainers = containers.filter((_, i) => i !== index);
       setContainers(newContainers);
       setShowDeleteConfirm(null);
+      await fetchData(); // Refresh data after deleting
     } catch (err) {
       console.error('Error deleting container:', err);
     }
@@ -121,15 +153,17 @@ function LCMPage() {
         usedUuids.add(newUuid);
         setUsedUuids(new Set(usedUuids)); // Update state with new UUID
 
-        await axios.post('/api/lcm/install', {
+        const response = await axios.post('/api/lcm/install', {
         url: container.url,
-        uuid: newUuid, // Use the generated unique UUID
+        uuid: newUuid,
         name: container.name,
         });
+        if (response.data.success) {
         const newContainers = containers.filter((_, i) => i !== index);
         setContainers(newContainers);
         setShowInstallConfirm(null);
-        await fetchData();
+        await fetchData(); // Refresh data after installing
+        }
     } catch (err) {
         console.error('Error installing container:', err);
     }
@@ -139,7 +173,7 @@ function LCMPage() {
     try {
       await axios.post('/api/lcm/stop', { unitIndex: existingContainers[index].index });
       setShowStopConfirm(null);
-      await fetchData();
+      await fetchData(); // Refresh data after stopping
     } catch (err) {
       console.error('Error stopping container:', err);
     }
@@ -154,7 +188,7 @@ function LCMPage() {
       const newContainers = existingContainers.filter((_, i) => i !== index);
       setExistingContainers(newContainers);
       setShowUninstallConfirm(null);
-      await fetchData();
+      await fetchData(); // Refresh data after uninstalling
     } catch (err) {
       console.error('Error uninstalling container:', err);
     }
@@ -178,7 +212,7 @@ function LCMPage() {
       >
         <h2 className="text-xl font-semibold mb-6 text-gray-800 flex items-center gap-3">
           <BarChart className="text-tinno-green-700" size={24} />
-          LCM Summary
+          Services Summary
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {[
@@ -204,29 +238,29 @@ function LCMPage() {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, delay: 0.1, ease: 'easeOut' }}
         className="bg-white/90 backdrop-blur-sm p-6 rounded-2xl shadow-2xl mb-8 border border-gray-100"
-        >
+      >
         <h2 className="text-xl font-semibold mb-6 text-gray-800 flex items-center justify-between">
-            <span>Container Library</span>
-            <motion.button
+          <span>Service Library</span>
+          <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             onClick={() => setShowAddForm(true)}
             className="px-3 py-1 bg-tinno-green-700 text-white rounded-full hover:bg-tinno-green-600 transition-colors flex items-center gap-2 shadow-md"
-            >
+          >
             <Plus size={16} />
-            <span className="text-xs">Add Container</span>
-            </motion.button>
+            <span className="text-xs">Add Service</span>
+          </motion.button>
         </h2>
 
         {showAddForm && (
-            <motion.div
+          <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             className="p-4 bg-white/80 backdrop-blur-sm rounded-xl border border-gray-200 shadow-lg mb-4"
-            >
+          >
             <h3 className="text-lg font-semibold mb-4 text-gray-800">Add New Container</h3>
             <form onSubmit={handleAddContainer} className="space-y-3">
-                <input
+              <input
                 type="text"
                 name="url"
                 value={newContainer.url}
@@ -234,8 +268,8 @@ function LCMPage() {
                 placeholder="URL (e.g., docker://registry-1.docker.io/...)"
                 className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-tinno-green-600 focus:border-transparent transition text-sm"
                 required
-                />
-                <input
+              />
+              <input
                 type="text"
                 name="name"
                 value={newContainer.name}
@@ -243,138 +277,137 @@ function LCMPage() {
                 placeholder="Name"
                 className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-tinno-green-600 focus:border-transparent transition text-sm"
                 required
-                />
-                <input
+              />
+              <input
                 type="text"
                 name="description"
                 value={newContainer.description}
                 onChange={handleInputChange}
                 placeholder="Description"
                 className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-tinno-green-600 focus:border-transparent transition text-sm"
-                />
-                <input
+              />
+              <input
                 type="text"
                 name="vendor"
                 value={newContainer.vendor}
                 onChange={handleInputChange}
                 placeholder="Vendor"
                 className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-tinno-green-600 focus:border-transparent transition text-sm"
-                />
-                <input
+              />
+              <input
                 type="text"
                 name="version"
                 value={newContainer.version}
                 onChange={handleInputChange}
                 placeholder="Version"
                 className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-tinno-green-600 focus:border-transparent transition text-sm"
-                />
-                <div className="flex justify-end gap-3">
+              />
+              <div className="flex justify-end gap-3">
                 <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    type="submit"
-                    className="px-4 py-1 bg-tinno-green-700 text-white rounded-full hover:bg-tinno-green-600 transition-colors shadow-md text-sm"
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  type="submit"
+                  className="px-4 py-1 bg-tinno-green-700 text-white rounded-full hover:bg-tinno-green-600 transition-colors shadow-md text-sm"
                 >
-                    Add
+                  Add
                 </motion.button>
                 <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    type="button"
-                    onClick={() => setShowAddForm(false)}
-                    className="px-4 py-1 bg-gray-300 text-gray-800 rounded-full hover:bg-gray-400 transition-colors shadow-md text-sm"
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  type="button"
+                  onClick={() => setShowAddForm(false)}
+                  className="px-4 py-1 bg-gray-300 text-gray-800 rounded-full hover:bg-gray-400 transition-colors shadow-md text-sm"
                 >
-                    Cancel
+                  Cancel
                 </motion.button>
-                </div>
+              </div>
             </form>
-            </motion.div>
+          </motion.div>
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {containers.map((container, index) => (
+          {containers.map((container, index) => (
             <motion.div
-                key={index}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                whileHover={{ scale: 1.03 }}
-                className="p-4 bg-gradient-to-br from-white to-gray-100 rounded-xl border border-gray-200 shadow-lg transition-all duration-300 cursor-pointer"
-                onClick={() => handleViewDetails(container)}
+              key={index}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              whileHover={{ scale: 1.03 }}
+              className="p-4 bg-gradient-to-br from-white to-gray-100 rounded-xl border border-gray-200 shadow-lg transition-all duration-300 cursor-pointer"
+              onClick={() => handleViewDetails(container)}
             >
-                <h3 className="text-base font-semibold mb-3 text-gray-800">{`${container.name} - ${container.vendor}`}</h3>
-                <div className="space-y-2">
+              <h3 className="text-base font-semibold mb-3 text-gray-800">{`${container.name} - ${container.vendor}`}</h3>
+              <div className="space-y-2">
                 <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={(e) => { e.stopPropagation(); setShowDeleteConfirm(index); }}
-                    className="w-full px-3 py-1 bg-red-600 text-white rounded-full hover:bg-red-700 transition-colors flex items-center justify-center gap-1 shadow-md text-xs"
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={(e) => { e.stopPropagation(); setShowDeleteConfirm(index); }}
+                  className="w-full px-3 py-1 bg-red-600 text-white rounded-full hover:bg-red-700 transition-colors flex items-center justify-center gap-1 shadow-md text-xs"
                 >
-                    <Trash2 size={14} />
-                    <span className="text-xs">Delete</span>
+                  <Trash2 size={14} />
+                  <span className="text-xs">Delete</span>
                 </motion.button>
                 {showDeleteConfirm === index && (
-                    <div className="mt-2 p-2 bg-red-50 rounded-lg border border-red-200">
+                  <div className="mt-2 p-2 bg-red-50 rounded-lg border border-red-200">
                     <p className="text-xs text-red-700">Are you sure you want to delete {container.name}?</p>
                     <div className="mt-2 flex justify-end gap-1">
-                        <motion.button
+                      <motion.button
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
                         onClick={(e) => { e.stopPropagation(); handleDeleteContainer(index); }}
                         className="px-2 py-1 bg-red-600 text-white rounded-full hover:bg-red-700 text-xs"
-                        >
+                      >
                         Yes
-                        </motion.button>
-                        <motion.button
+                      </motion.button>
+                      <motion.button
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
                         onClick={(e) => { e.stopPropagation(); setShowDeleteConfirm(null); }}
                         className="px-2 py-1 bg-gray-300 text-gray-800 rounded-full hover:bg-gray-400 text-xs"
-                        >
+                      >
                         No
-                        </motion.button>
+                      </motion.button>
                     </div>
-                    </div>
+                  </div>
                 )}
                 {!existingContainers.some(c => c.url === container.url) && (
-                    <motion.button
+                  <motion.button
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
                     onClick={(e) => { e.stopPropagation(); setShowInstallConfirm(index); }}
                     className="w-full px-3 py-1 bg-tinno-green-700 text-white rounded-full hover:bg-tinno-green-600 transition-colors flex items-center justify-center gap-1 shadow-md text-xs"
-                    >
+                  >
                     <Check size={14} />
                     <span className="text-xs">Add to Device</span>
-                    </motion.button>
+                  </motion.button>
                 )}
                 {showInstallConfirm === index && (
-                    <div className="mt-2 p-2 bg-green-50 rounded-lg border border-green-200">
+                  <div className="mt-2 p-2 bg-green-50 rounded-lg border border-green-200">
                     <p className="text-xs text-green-700">Are you sure you want to install {container.name}?</p>
                     <div className="mt-2 flex justify-end gap-1">
-                        <motion.button
+                      <motion.button
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
                         onClick={(e) => { e.stopPropagation(); handleInstallContainer(index); }}
                         className="px-2 py-1 bg-tinno-green-700 text-white rounded-full hover:bg-tinno-green-600 text-xs"
-                        >
+                      >
                         Yes
-                        </motion.button>
-                        <motion.button
+                      </motion.button>
+                      <motion.button
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
                         onClick={(e) => { e.stopPropagation(); setShowInstallConfirm(null); }}
                         className="px-2 py-1 bg-gray-300 text-gray-800 rounded-full hover:bg-gray-400 text-xs"
-                        >
+                      >
                         No
-                        </motion.button>
+                      </motion.button>
                     </div>
-                    </div>
+                  </div>
                 )}
-                </div>
+              </div>
             </motion.div>
-            ))}
+          ))}
         </div>
-        </motion.div>
-
+      </motion.div>
 
       <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -382,7 +415,7 @@ function LCMPage() {
         transition={{ duration: 0.5, delay: 0.2, ease: 'easeOut' }}
         className="bg-white/90 backdrop-blur-sm p-6 rounded-2xl shadow-2xl border border-gray-100"
       >
-        <h2 className="text-xl font-semibold mb-6 text-gray-800">Existing Containers</h2>
+        <h2 className="text-xl font-semibold mb-6 text-gray-800">Active Services</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {existingContainers.map((container, index) => (
             <motion.div
@@ -437,29 +470,29 @@ function LCMPage() {
                   <span className="text-xs">Delete</span>
                 </motion.button>
                 {showUninstallConfirm === index && (
-                <div className="mt-2 p-2 bg-red-50 rounded-lg border border-red-200" style={{ minWidth: '200px' }}>
+                  <div className="mt-2 p-2 bg-red-50 rounded-lg border border-red-200" style={{ minWidth: '200px' }}>
                     <p className="text-xs text-red-700">Are you sure you want to delete {container.name}?</p>
                     <div className="mt-2 flex justify-end gap-2">
-                    <motion.button
+                      <motion.button
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
                         onClick={(e) => { e.stopPropagation(); handleUninstallContainer(index); }}
                         className="px-3 py-1 bg-red-600 text-white rounded-full hover:bg-red-700 text-xs"
                         style={{ minWidth: '40px' }}
-                    >
+                      >
                         Yes
-                    </motion.button>
-                    <motion.button
+                      </motion.button>
+                      <motion.button
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
                         onClick={(e) => { e.stopPropagation(); setShowUninstallConfirm(null); }}
                         className="px-3 py-1 bg-gray-300 text-gray-800 rounded-full hover:bg-gray-400 text-xs"
                         style={{ minWidth: '40px' }}
-                    >
+                      >
                         No
-                    </motion.button>
+                      </motion.button>
                     </div>
-                </div>
+                  </div>
                 )}
               </div>
               {container.status && (
