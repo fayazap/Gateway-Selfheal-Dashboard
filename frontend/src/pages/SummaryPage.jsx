@@ -30,24 +30,75 @@ function SummaryPage() {
     rebootCount: 0,
     avgCpuThreshold: 0,
     avgMemoryThreshold: 0,
-    avgTemperatureThreshold: 0, // Added to match backend data
+    avgTemperatureThreshold: 0,
   });
   const [cpuData, setCpuData] = useState({
     datasets: [
-      { label: 'CPU Usage (%)', data: [], borderColor: '#28a745', backgroundColor: 'rgba(40, 167, 69, 0.2)', fill: true, tension: 0.4, pointRadius: 0, pointHoverRadius: 5 },
-      { label: 'Threshold (0%)', data: [], borderColor: '#dc3545', backgroundColor: 'rgba(220, 53, 69, 0.1)', fill: false, borderDash: [5, 5], pointRadius: 0 },
+      {
+        label: 'CPU Usage (%)',
+        data: [],
+        borderColor: '#28a745',
+        backgroundColor: 'rgba(40, 167, 69, 0.2)',
+        fill: true,
+        tension: 0.4,
+        pointRadius: 0,
+        pointHoverRadius: 5,
+      },
+      {
+        label: 'Threshold (0%)',
+        data: [],
+        borderColor: '#dc3545',
+        backgroundColor: 'rgba(220, 53, 69, 0.1)',
+        fill: false,
+        borderDash: [5, 5],
+        pointRadius: 0,
+      },
     ],
   });
   const [memoryData, setMemoryData] = useState({
     datasets: [
-      { label: 'Memory Usage (%)', data: [], borderColor: '#28a745', backgroundColor: 'rgba(40, 167, 69, 0.2)', fill: true, tension: 0.4, pointRadius: 0, pointHoverRadius: 5 },
-      { label: 'Threshold (0%)', data: [], borderColor: '#dc3545', backgroundColor: 'rgba(220, 53, 69, 0.1)', fill: false, borderDash: [5, 5], pointRadius: 0 },
+      {
+        label: 'Memory Usage (%)',
+        data: [],
+        borderColor: '#28a745',
+        backgroundColor: 'rgba(40, 167, 69, 0.2)',
+        fill: true,
+        tension: 0.4,
+        pointRadius: 0,
+        pointHoverRadius: 5,
+      },
+      {
+        label: 'Threshold (0%)',
+        data: [],
+        borderColor: '#dc3545',
+        backgroundColor: 'rgba(220, 53, 69, 0.1)',
+        fill: false,
+        borderDash: [5, 5],
+        pointRadius: 0,
+      },
     ],
   });
   const [tempData, setTempData] = useState({
     datasets: [
-      { label: 'Temperature (°C)', data: [], borderColor: '#ff9800', backgroundColor: 'rgba(255, 152, 0, 0.2)', fill: true, tension: 0.4, pointRadius: 0, pointHoverRadius: 5 },
-      { label: 'Threshold (0°C)', data: [], borderColor: '#dc3545', backgroundColor: 'rgba(220, 53, 69, 0.1)', fill: false, borderDash: [5, 5], pointRadius: 0 }, // Added threshold dataset
+      {
+        label: 'Temperature (°C)',
+        data: [],
+        borderColor: '#ff9800',
+        backgroundColor: 'rgba(255, 152, 0, 0.2)',
+        fill: true,
+        tension: 0.4,
+        pointRadius: 0,
+        pointHoverRadius: 5,
+      },
+      {
+        label: 'Threshold (0°C)',
+        data: [],
+        borderColor: '#dc3545',
+        backgroundColor: 'rgba(220, 53, 69, 0.1)',
+        fill: false,
+        borderDash: [5, 5],
+        pointRadius: 0,
+      },
     ],
   });
   const [error, setError] = useState('');
@@ -57,29 +108,19 @@ function SummaryPage() {
   const memoryChartRef = useRef(null);
   const tempChartRef = useRef(null);
 
-  useEffect(() => {
-    fetchInitialData();
-    const interval = setInterval(() => {
-      updateChartsFromStats().catch(err => {
-        console.error('Chart update failed:', err);
-        setError('Failed to update charts - Ensure backend is running');
-      });
-    }, 5000); // Poll every 5 seconds
-    return () => clearInterval(interval);
-  }, []);
-
-  const fetchInitialData = async () => {
-    setLoading(true);
-    setError(null);
+  // Fetch all data and update states atomically
+  const fetchAndUpdateAll = async () => {
+    setError('');
     try {
       const [summaryResponse, selfhealResponse, statsResponse] = await Promise.all([
         axios.get('/api/summary'),
         axios.get('/api/selfheal'),
         axios.get('/api/stats'),
       ]);
+
       if (summaryResponse.status === 200) setSummary(summaryResponse.data);
 
-      if (selfhealResponse.status === 200) {
+      if (selfhealResponse.status === 200 && statsResponse.status === 200) {
         const newSelfheal = {
           lastRebootReason: selfhealResponse.data.lastRebootReason,
           lastRebootTime: selfhealResponse.data.lastRebootTime,
@@ -90,104 +131,88 @@ function SummaryPage() {
         };
         setSelfheal(newSelfheal);
 
-        // Now update chart data using latest thresholds
-        if (statsResponse.status === 200) {
-          updateChartsFromStats(
-            statsResponse.data.cpuStats,
-            statsResponse.data.memoryStats,
-            statsResponse.data.tempStats,
-            newSelfheal // <-- pass latest thresholds here
-          );
-        }
+        updateChartsFromStats(
+          statsResponse.data.cpuStats || [],
+          statsResponse.data.memoryStats || [],
+          statsResponse.data.tempStats || [],
+          newSelfheal
+        );
       } else {
-        throw new Error('Failed to load selfheal data');
+        throw new Error('Failed to load selfheal or stats data');
       }
     } catch (err) {
-      setError(`Network error: ${err.message} - Ensure backend is running on http://localhost:5000`);
+      console.error('Error fetching data', err);
+      setError('Failed to update charts - Ensure backend is running');
     } finally {
       setLoading(false);
     }
   };
 
-  const updateChartsFromStats = async (
+  useEffect(() => {
+    fetchAndUpdateAll();
+    const interval = setInterval(fetchAndUpdateAll, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const updateChartsFromStats = (
     cpuStats = [],
     memoryStats = [],
     tempStats = [],
-    thresholds = { avgCpuThreshold: 0, avgMemoryThreshold: 0, avgTemperatureThreshold: 0 } // fallback if not passed
+    thresholds = { avgCpuThreshold: 0, avgMemoryThreshold: 0, avgTemperatureThreshold: 0 }
   ) => {
     const formatTime = (isoTime) => new Date(isoTime);
     const limitLast20 = (data) => (data.length ? data.slice(-20) : []);
 
-    // Fallback to last known data if new data is empty
-    const lastCpuUsage = cpuData.datasets[0].data.length ? [...cpuData.datasets[0].data] : [];
-    const lastCpuThreshold = cpuData.datasets[1].data.length ? [...cpuData.datasets[1].data] : [];
-    const lastMemoryUsage = memoryData.datasets[0].data.length ? [...memoryData.datasets[0].data] : [];
-    const lastMemoryThreshold = memoryData.datasets[1].data.length ? [...memoryData.datasets[1].data] : [];
-    const lastTempData = tempData.datasets[0].data.length ? [...tempData.datasets[0].data] : [];
-    const lastTempThreshold = tempData.datasets[1].data.length ? [...tempData.datasets[1].data] : [];
+    // Helper to avoid unnecessary updates if data is unchanged
+    const arraysEqual = (a = [], b = []) =>
+      a.length === b.length && a.every((v, i) => v.x.getTime() === b[i].x.getTime() && v.y === b[i].y);
 
-    // Update CPU Data (using latest thresholds)
-    const cpuUsageData = limitLast20(cpuStats).map(stat => ({ x: formatTime(stat.time), y: stat.value || 0 }));
-    const cpuThresholdData = limitLast20(cpuStats).map(stat => ({ x: formatTime(stat.time), y: thresholds.avgCpuThreshold }));
-    const shouldUpdateCpu = !cpuUsageData.length ? false : (
-      !cpuData.datasets[0].data.length ||
-      cpuUsageData.some((d, i) => Math.abs(d.y - (cpuData.datasets[0].data[i]?.y || 0)) > 0.5) ||
-      cpuThresholdData.some((d, i) => d.y !== (cpuData.datasets[1].data[i]?.y || 0))
-    );
-    if (shouldUpdateCpu) {
-      setCpuData(prev => ({
+    // CPU
+    const cpuUsageData = limitLast20(cpuStats).map((stat) => ({ x: formatTime(stat.time), y: stat.value || 0 }));
+    const cpuThresholdData = cpuUsageData.map((point) => ({ x: point.x, y: thresholds.avgCpuThreshold }));
+    if (
+      !arraysEqual(cpuUsageData, cpuData.datasets[0].data) ||
+      !arraysEqual(cpuThresholdData, cpuData.datasets[1].data) ||
+      cpuData.datasets[1].label !== `Threshold (${thresholds.avgCpuThreshold}%)`
+    ) {
+      setCpuData({
         datasets: [
-          { ...prev.datasets[0], data: cpuUsageData.length ? cpuUsageData : lastCpuUsage },
-          { ...prev.datasets[1], data: cpuThresholdData.length ? cpuThresholdData : lastCpuThreshold, label: `Threshold (${thresholds.avgCpuThreshold}%)` },
+          { ...cpuData.datasets[0], data: cpuUsageData },
+          { ...cpuData.datasets[1], data: cpuThresholdData, label: `Threshold (${thresholds.avgCpuThreshold}%)` },
         ],
-      }));
+      });
     }
 
-    // Update Memory Data (using latest thresholds)
-    const memoryUsageData = limitLast20(memoryStats).map(stat => ({ x: formatTime(stat.time), y: stat.value || 0 }));
-    const memoryThresholdData = limitLast20(memoryStats).map(stat => ({ x: formatTime(stat.time), y: thresholds.avgMemoryThreshold }));
-    const shouldUpdateMemory = !memoryUsageData.length ? false : (
-      !memoryData.datasets[0].data.length ||
-      memoryUsageData.some((d, i) => Math.abs(d.y - (memoryData.datasets[0].data[i]?.y || 0)) > 0.5) ||
-      memoryThresholdData.some((d, i) => d.y !== (memoryData.datasets[1].data[i]?.y || 0))
-    );
-    if (shouldUpdateMemory) {
-      setMemoryData(prev => ({
+    // Memory
+    const memoryUsageData = limitLast20(memoryStats).map((stat) => ({ x: formatTime(stat.time), y: stat.value || 0 }));
+    const memoryThresholdData = memoryUsageData.map((point) => ({ x: point.x, y: thresholds.avgMemoryThreshold }));
+    if (
+      !arraysEqual(memoryUsageData, memoryData.datasets[0].data) ||
+      !arraysEqual(memoryThresholdData, memoryData.datasets[1].data) ||
+      memoryData.datasets[1].label !== `Threshold (${thresholds.avgMemoryThreshold}%)`
+    ) {
+      setMemoryData({
         datasets: [
-          { ...prev.datasets[0], data: memoryUsageData.length ? memoryUsageData : lastMemoryUsage },
-          { ...prev.datasets[1], data: memoryThresholdData.length ? memoryThresholdData : lastMemoryThreshold, label: `Threshold (${thresholds.avgMemoryThreshold}%)` },
+          { ...memoryData.datasets[0], data: memoryUsageData },
+          { ...memoryData.datasets[1], data: memoryThresholdData, label: `Threshold (${thresholds.avgMemoryThreshold}%)` },
         ],
-      }));
+      });
     }
 
-    // Update Temperature Data (using latest thresholds)
-    const tempDataPoints = limitLast20(tempStats).map(stat => ({ x: formatTime(stat.time), y: stat.value || 0 }));
-    const tempThresholdData = limitLast20(tempStats).map(stat => ({ x: formatTime(stat.time), y: thresholds.avgTemperatureThreshold }));
-    const shouldUpdateTemp = !tempDataPoints.length ? false : (
-      !tempData.datasets[0].data.length ||
-      tempDataPoints.some((d, i) => Math.abs(d.y - (tempData.datasets[0].data[i]?.y || 0)) > 0.5) ||
-      tempThresholdData.some((d, i) => d.y !== (tempData.datasets[1].data[i]?.y || 0))
-    );
-    if (shouldUpdateTemp) {
-      setTempData(prev => ({
+    // Temperature
+    const tempDataPoints = limitLast20(tempStats).map((stat) => ({ x: formatTime(stat.time), y: stat.value || 0 }));
+    const tempThresholdData = tempDataPoints.map((point) => ({ x: point.x, y: thresholds.avgTemperatureThreshold }));
+    if (
+      !arraysEqual(tempDataPoints, tempData.datasets[0].data) ||
+      !arraysEqual(tempThresholdData, tempData.datasets[1].data) ||
+      tempData.datasets[1].label !== `Threshold (${thresholds.avgTemperatureThreshold}°C)`
+    ) {
+      setTempData({
         datasets: [
-          { ...prev.datasets[0], data: tempDataPoints.length ? tempDataPoints : lastTempData },
-          { ...prev.datasets[1], data: tempThresholdData.length ? tempThresholdData : lastTempThreshold, label: `Threshold (${thresholds.avgTemperatureThreshold}°C)` },
+          { ...tempData.datasets[0], data: tempDataPoints },
+          { ...tempData.datasets[1], data: tempThresholdData, label: `Threshold (${thresholds.avgTemperatureThreshold}°C)` },
         ],
-      }));
-    }
-  };
-
-  const refreshGraph = async (type) => {
-    try {
-      const statsResponse = await axios.get('/api/stats');
-      if (statsResponse.status === 200) {
-        if (type === 'cpu' || !type) updateChartsFromStats(statsResponse.data.cpuStats);
-        if (type === 'memory' || !type) updateChartsFromStats(null, statsResponse.data.memoryStats);
-        if (type === 'temp' || !type) updateChartsFromStats(null, null, statsResponse.data.tempStats);
-      }
-    } catch (err) {
-      setError('Error refreshing graph data - Ensure backend is running on http://localhost:5000');
+      });
     }
   };
 
@@ -233,8 +258,10 @@ function SummaryPage() {
         mode: 'index',
         intersect: false,
         callbacks: {
-          label: function (context) {
-            return `${context.dataset.label}: ${context.parsed.y}${context.dataset.label.includes('Threshold') || context.dataset.label.includes('Temperature') ? '' : '%'}`;
+          label(context) {
+            return `${context.dataset.label}: ${
+              context.parsed.y
+            }${context.dataset.label.includes('Threshold') || context.dataset.label.includes('Temperature') ? '' : '%'}`;
           },
         },
       },
@@ -251,7 +278,7 @@ function SummaryPage() {
       ...chartOptions.scales,
       y: {
         ...chartOptions.scales.y,
-        max: 150, // Adjusted to accommodate a potential 120°C threshold
+        max: 150, // accommodate temperature range
         title: {
           display: true,
           text: 'Temperature (°C)',
@@ -286,7 +313,7 @@ function SummaryPage() {
             <p className="text-gray-600 text-sm mb-3">{error}</p>
             <div className="space-x-2">
               <button
-                onClick={fetchInitialData}
+                onClick={fetchAndUpdateAll}
                 className="bg-tinno-green-600 hover:bg-tinno-green-700 text-white px-4 py-1 rounded transition-colors duration-200 text-sm"
               >
                 Try Again
@@ -306,7 +333,7 @@ function SummaryPage() {
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-lg font-semibold text-gray-800">Device Status</h2>
           </div>
-          
+
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             <div className="bg-tinno-green-50 p-2 rounded">
               <div className="flex items-center space-x-2">

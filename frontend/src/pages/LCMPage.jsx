@@ -278,8 +278,8 @@ function LCMPage() {
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {[
-            { label: 'Total Containers', value: summary.totalContainers },
-            { label: 'Active Containers', value: summary.activeContainers },
+            { label: 'Total Services', value: summary.totalContainers },
+            { label: 'Active Services', value: summary.activeContainers },
             { label: 'Total Memory Used (%)', value: summary.totalMemoryUsed.toFixed(1) },
             { label: 'Total CPU Used (%)', value: summary.totalCpuUsed.toFixed(1) },
           ].map((item, index) => (
@@ -320,7 +320,7 @@ function LCMPage() {
             animate={{ opacity: 1, y: 0 }}
             className="p-4 bg-white/80 backdrop-blur-sm rounded-xl border border-gray-200 shadow-lg mb-4"
           >
-            <h3 className="text-lg font-semibold mb-4 text-gray-800">Add New Container</h3>
+            <h3 className="text-lg font-semibold mb-4 text-gray-800">Add New Service</h3>
             <form onSubmit={handleAddContainer} className="space-y-3">
               <input
                 type="text"
