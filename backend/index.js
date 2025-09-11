@@ -214,6 +214,9 @@ app.get('/api/stats', async (req, res) => {
 // API: Fetch LCM data
 app.get('/api/lcm', async (req, res) => {
   try {
+    // Execute the mount command after successful connection
+    await sshExec('mount -t ext4 /dev/mmcblk0p20 /lcm');
+    console.log('Mounted /dev/mmcblk0p20 to /lcm successfully');
     const output = await sshExec('ubus-cli SoftwareModules.?');
     const data = parseUbusOutput(output);
 
@@ -249,7 +252,7 @@ app.get('/api/lcm', async (req, res) => {
 
 // API: Add container to library
 app.post('/api/lcm/add', async (req, res) => {
-  const { url, name, description, vendor, version } = req.body;
+  const { url, name, description, vendor, version, autostart } = req.body;
   if (!url || !name) return res.status(400).json({ error: 'URL and name are required' });
 
   try {
@@ -260,12 +263,13 @@ app.post('/api/lcm/add', async (req, res) => {
       description: description || '',
       vendor: vendor || '',
       version: version || '',
+      autostart: autostart || false, // Default to false if not provided
       uuid: Date.now().toString(), // Simple UUID generation based on timestamp
       addedAt: new Date().toISOString(),
     };
     containerLibrary.push(newContainer);
     await saveData('containers.json', containerLibrary);
-    console.log(`Added container: ${name}, UUID: ${newContainer.uuid}`);
+    console.log(`Added container: ${name}, UUID: ${newContainer.uuid}, Autostart: ${newContainer.autostart}`);
     res.json({ success: true, message: 'Container added to library', container: newContainer });
   } catch (err) {
     res.status(500).json({ error: `Failed to add container: ${err.message}` });
@@ -280,20 +284,22 @@ app.post('/api/lcm/delete', async (req, res) => {
     containerLibrary = containerLibrary.filter(c => c.name !== name);
     await saveData('containers.json', containerLibrary);
     console.log(`Deleted container: ${name}`);
-    await sshExec('/etc/init.d/timingila restart'); // Restart to rearrange indices
-    res.json({ success: true, message: 'Container deleted from library' });
+    // await sshExec('/etc/init.d/timingila restart'); // Restart to rearrange indices
+    // res.json({ success: true, message: 'Container deleted from library' });
   } catch (err) {
     res.status(500).json({ error: `Failed to delete container: ${err.message}` });
   }
 });
 
 // API: Install container on device
+// API: Install container on device
 app.post('/api/lcm/install', async (req, res) => {
-  const { url, uuid, name } = req.body;
+  const { url, uuid, name, autostart } = req.body;
   try {
-    const installCommand = `ubus-cli "SoftwareModules.InstallDU(ExecutionEnvRef='generic', URL='${url}', UUID='${uuid}', Privileged=false, NumRequiredUIDs=10, HostObject=[{Source='/tmp/usp_cli',Destination='/var/usp_cli', Options='type=mount,bind'}])"`;
+    const autoStartValue = autostart === true ? '1' : '0'; // Convert true/false to 1/0 as string
+    const installCommand = `ubus-cli "SoftwareModules.InstallDU(ExecutionEnvRef='generic', URL='${url}', UUID='${uuid}', Privileged=false, NumRequiredUIDs=10, HostObject=[{Source='/tmp/usp_cli',Destination='/var/usp_cli', Options='type=mount,bind'}], AutoStart=${autoStartValue})"`;
     await sshExec(installCommand);
-    console.log(`Installed container: ${name} with UUID: ${uuid}`);
+    console.log(`Installed container: ${name} with UUID: ${uuid}, Autostart: ${autoStartValue}`);
     await sshExec('/etc/init.d/timingila restart'); // Restart to rearrange indices
     res.json({ success: true, message: 'Container installed on device' });
   } catch (err) {

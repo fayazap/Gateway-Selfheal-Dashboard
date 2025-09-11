@@ -364,6 +364,16 @@ function LCMPage() {
                 placeholder="Version"
                 className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-tinno-green-600 focus:border-transparent transition text-sm"
               />
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  name="autostart"
+                  checked={newContainer.autostart || false}
+                  onChange={handleInputChange}
+                  className="h-4 w-4 text-tinno-green-600 focus:ring-tinno-green-600 border-gray-300 rounded"
+                />
+                <label className="text-sm text-gray-700">Autostart</label>
+              </div>
               <div className="flex justify-end gap-3">
                 <motion.button
                   whileHover={{ scale: 1.05 }}
