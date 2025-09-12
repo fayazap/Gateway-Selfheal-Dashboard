@@ -33,119 +33,122 @@ function LCMPage() {
   }, []);
 
   const fetchData = async () => {
-    try {
-      const lcmResponse = await axios.get('/api/lcm');
-      const lcmData = lcmResponse.data;
-      const summaryResponse = await axios.get('/api/summary');
-      const summaryData = summaryResponse.data;
-      const totalContainers = parseInt(lcmData.SoftwareModules?.['SoftwareModules.ExecutionUnitNumberOfEntries']?.replace(/"/g, '') || '0');
-      const executionUnits = lcmData.ExecutionUnits || [];
-      const deploymentUnits = lcmData.DeploymentUnits || [];
+  try {
+    const lcmResponse = await axios.get('/api/lcm');
+    const lcmData = lcmResponse.data;
+    const summaryResponse = await axios.get('/api/summary');
+    const summaryData = summaryResponse.data;
+    const totalContainers = parseInt(lcmData.SoftwareModules?.['SoftwareModules.ExecutionUnitNumberOfEntries']?.replace(/"/g, '') || '0');
+    const executionUnits = lcmData.ExecutionUnits || [];
+    const deploymentUnits = lcmData.DeploymentUnits || [];
 
-      const activeContainers = executionUnits.reduce((count, unit) => {
-        const statusKey = Object.keys(unit).find(key => key.endsWith('.Status'));
-        return count + (statusKey && unit[statusKey]?.replace(/"/g, '') === 'Active' ? 1 : 0);
-      }, 0);
+    const activeContainers = executionUnits.reduce((count, unit) => {
+      const statusKey = Object.keys(unit).find(key => key.endsWith('.Status'));
+      return count + (statusKey && unit[statusKey]?.replace(/"/g, '') === 'Active' ? 1 : 0);
+    }, 0);
 
-      const totalCpuUsed = parseFloat(summaryData.cpuUsage?.replace('%', '') || '0');
-      const totalMemoryUsed = parseFloat(summaryData.memoryUsage?.replace(/"/g, '') || '0');
+    const totalCpuUsed = parseFloat(summaryData.cpuUsage?.replace('%', '') || '0');
+    const totalMemoryUsed = parseFloat(summaryData.memoryUsage?.replace(/"/g, '') || '0');
 
-      setSummary({ totalContainers, activeContainers, totalMemoryUsed, totalCpuUsed });
+    setSummary({ totalContainers, activeContainers, totalMemoryUsed, totalCpuUsed });
 
-      const allContainers = [];
-      const seenDuids = new Set();
-      const containersMap = new Map();
+    const allContainers = [];
+    const seenDuids = new Set();
+    const containersMap = new Map();
 
-      // Process deploymentUnits first
-      deploymentUnits.forEach(unit => {
-        const duidKey = Object.keys(unit).find(key => key.endsWith('.DUID') || key.endsWith('.EUID'));
-        const uuidKey = Object.keys(unit).find(key => key.endsWith('.UUID'));
-        const nameKey = Object.keys(unit).find(key => key.endsWith('.Name'));
-        const statusKey = Object.keys(unit).find(key => key.endsWith('.Status'));
-        const urlKey = Object.keys(unit).find(key => key.endsWith('.URL'));
-        const descriptionKey = Object.keys(unit).find(key => key.endsWith('.Description'));
-        const vendorKey = Object.keys(unit).find(key => key.endsWith('.Vendor'));
-        const versionKey = Object.keys(unit).find(key => key.endsWith('.Version'));
-        const aliasKey = Object.keys(unit).find(key => key.endsWith('.Alias'));
-        const installedKey = Object.keys(unit).find(key => key.endsWith('.Installed') || key.endsWith('.CreationTime'));
-        const lastUpdateKey = Object.keys(unit).find(key => key.endsWith('.LastUpdate'));
+    // Process deploymentUnits first
+    deploymentUnits.forEach(unit => {
+      const duidKey = Object.keys(unit).find(key => key.endsWith('.DUID') || key.endsWith('.EUID'));
+      const uuidKey = Object.keys(unit).find(key => key.endsWith('.UUID'));
+      const nameKey = Object.keys(unit).find(key => key.endsWith('.Name'));
+      const statusKey = Object.keys(unit).find(key => key.endsWith('.Status'));
+      const urlKey = Object.keys(unit).find(key => key.endsWith('.URL'));
+      const descriptionKey = Object.keys(unit).find(key => key.endsWith('.Description'));
+      const vendorKey = Object.keys(unit).find(key => key.endsWith('.Vendor'));
+      const versionKey = Object.keys(unit).find(key => key.endsWith('.Version'));
+      const aliasKey = Object.keys(unit).find(key => key.endsWith('.Alias'));
+      const installedKey = Object.keys(unit).find(key => key.endsWith('.Installed') || key.endsWith('.CreationTime'));
+      const lastUpdateKey = Object.keys(unit).find(key => key.endsWith('.LastUpdate'));
 
-        const duid = duidKey ? unit[duidKey]?.replace(/"/g, '') : uuidKey ? unit[uuidKey]?.replace(/"/g, '') : null;
+      const duid = duidKey ? unit[duidKey]?.replace(/"/g, '') : uuidKey ? unit[uuidKey]?.replace(/"/g, '') : null;
 
-        if (duid) {
-          const containerData = {
+      if (duid) {
+        const containerData = {
+          unitIndex: null, // Will be set when matching with ExecutionUnits
+          index: allContainers.length + 1,
+          name: unit[nameKey]?.replace(/"/g, '') || 'Unnamed',
+          url: urlKey ? unit[urlKey]?.replace(/"/g, '') : 'N/A',
+          description: descriptionKey ? unit[descriptionKey]?.replace(/"/g, '') : 'N/A',
+          vendor: vendorKey ? unit[vendorKey]?.replace(/"/g, '') : 'N/A',
+          version: versionKey ? unit[versionKey]?.replace(/"/g, '') : 'N/A',
+          alias: aliasKey ? unit[aliasKey]?.replace(/"/g, '') : 'N/A',
+          duid: duid || 'N/A',
+          installed: installedKey ? unit[installedKey]?.replace(/"/g, '') : 'N/A',
+          lastUpdate: lastUpdateKey ? unit[lastUpdateKey]?.replace(/"/g, '') : 'N/A',
+          deploymentStatus: statusKey ? unit[statusKey]?.replace(/"/g, '') : 'N/A',
+          executionStatus: 'N/A',
+          uuid: uuidKey ? unit[uuidKey]?.replace(/"/g, '') : 'N/A',
+        };
+        containersMap.set(duid, containerData);
+        seenDuids.add(duid);
+      }
+    });
+
+    // Process executionUnits and merge with deployment data, assign unitIndex
+    executionUnits.forEach((unit, unitIdx) => {
+      const duidKey = Object.keys(unit).find(key => key.endsWith('.DUID') || key.endsWith('.EUID'));
+      const uuidKey = Object.keys(unit).find(key => key.endsWith('.UUID'));
+      const nameKey = Object.keys(unit).find(key => key.endsWith('.Name'));
+      const statusKey = Object.keys(unit).find(key => key.endsWith('.Status'));
+      const aliasKey = Object.keys(unit).find(key => key.endsWith('.Alias'));
+      const installedKey = Object.keys(unit).find(key => key.endsWith('.Installed') || key.endsWith('.CreationTime'));
+      const lastUpdateKey = Object.keys(unit).find(key => key.endsWith('.LastUpdate'));
+
+      const duid = duidKey ? unit[duidKey]?.replace(/"/g, '') : uuidKey ? unit[uuidKey]?.replace(/"/g, '') : null;
+
+      if (duid) {
+        let containerData = containersMap.get(duid);
+        if (!containerData) {
+          containerData = {
+            unitIndex: unitIdx + 1, // Assign unitIndex based on executionUnits order (1-based)
             index: allContainers.length + 1,
             name: unit[nameKey]?.replace(/"/g, '') || 'Unnamed',
-            url: urlKey ? unit[urlKey]?.replace(/"/g, '') : 'N/A',
-            description: descriptionKey ? unit[descriptionKey]?.replace(/"/g, '') : 'N/A',
-            vendor: vendorKey ? unit[vendorKey]?.replace(/"/g, '') : 'N/A',
-            version: versionKey ? unit[versionKey]?.replace(/"/g, '') : 'N/A',
-            alias: aliasKey ? unit[aliasKey]?.replace(/"/g, '') : 'N/A',
+            url: 'N/A',
+            description: 'N/A',
+            vendor: 'N/A',
+            version: 'N/A',
+            alias: unit[aliasKey]?.replace(/"/g, '') || 'N/A',
             duid: duid || 'N/A',
-            installed: installedKey ? unit[installedKey]?.replace(/"/g, '') : 'N/A',
+            installed: unit[installedKey]?.replace(/"/g, '') || 'N/A',
             lastUpdate: lastUpdateKey ? unit[lastUpdateKey]?.replace(/"/g, '') : 'N/A',
-            deploymentStatus: statusKey ? unit[statusKey]?.replace(/"/g, '') : 'N/A',
-            executionStatus: 'N/A',
+            deploymentStatus: 'N/A',
+            executionStatus: statusKey ? unit[statusKey]?.replace(/"/g, '') : 'N/A',
             uuid: uuidKey ? unit[uuidKey]?.replace(/"/g, '') : 'N/A',
           };
-          containersMap.set(duid, containerData);
           seenDuids.add(duid);
+        } else {
+          containerData.executionStatus = statusKey ? unit[statusKey]?.replace(/"/g, '') : containerData.executionStatus;
+          containerData.unitIndex = unitIdx + 1; // Assign unitIndex
         }
-      });
+        containersMap.set(duid, containerData);
+      }
+    });
 
-      // Process executionUnits and merge with deployment data
-      executionUnits.forEach(unit => {
-        const duidKey = Object.keys(unit).find(key => key.endsWith('.DUID') || key.endsWith('.EUID'));
-        const uuidKey = Object.keys(unit).find(key => key.endsWith('.UUID'));
-        const nameKey = Object.keys(unit).find(key => key.endsWith('.Name'));
-        const statusKey = Object.keys(unit).find(key => key.endsWith('.Status'));
-        const aliasKey = Object.keys(unit).find(key => key.endsWith('.Alias'));
-        const installedKey = Object.keys(unit).find(key => key.endsWith('.Installed') || key.endsWith('.CreationTime'));
-        const lastUpdateKey = Object.keys(unit).find(key => key.endsWith('.LastUpdate'));
+    containersMap.forEach(value => allContainers.push(value));
 
-        const duid = duidKey ? unit[duidKey]?.replace(/"/g, '') : uuidKey ? unit[uuidKey]?.replace(/"/g, '') : null;
+    const newExistingContainers = allContainers;
+    setExistingContainers(newExistingContainers);
+    setContainers(lcmData.ContainerLibrary || []);
 
-        if (duid) {
-          let containerData = containersMap.get(duid);
-          if (!containerData) {
-            containerData = {
-              index: allContainers.length + 1,
-              name: unit[nameKey]?.replace(/"/g, '') || 'Unnamed',
-              url: 'N/A',
-              description: 'N/A',
-              vendor: 'N/A',
-              version: 'N/A',
-              alias: unit[aliasKey]?.replace(/"/g, '') || 'N/A',
-              duid: duid || 'N/A',
-              installed: unit[installedKey]?.replace(/"/g, '') || 'N/A',
-              lastUpdate: lastUpdateKey ? unit[lastUpdateKey]?.replace(/"/g, '') : 'N/A',
-              deploymentStatus: 'N/A',
-              executionStatus: statusKey ? unit[statusKey]?.replace(/"/g, '') : 'N/A',
-              uuid: uuidKey ? unit[uuidKey]?.replace(/"/g, '') : 'N/A',
-            };
-            seenDuids.add(duid);
-          } else {
-            containerData.executionStatus = statusKey ? unit[statusKey]?.replace(/"/g, '') : containerData.executionStatus;
-          }
-          containersMap.set(duid, containerData);
-        }
-      });
-
-      containersMap.forEach(value => allContainers.push(value));
-
-      const newExistingContainers = allContainers;
-      setExistingContainers(newExistingContainers);
-      setContainers(lcmData.ContainerLibrary || []);
-
-      const allUuids = new Set([
-        ...newExistingContainers.map(c => c.uuid),
-        ...containers.map(c => c.uuid),
-      ].filter(uuid => uuid !== 'N/A' && uuid !== undefined));
-      setUsedUuids(allUuids);
-    } catch (error) {
-      console.error('Error fetching data:', error);
-    }
-  };
+    const allUuids = new Set([
+      ...newExistingContainers.map(c => c.uuid),
+      ...containers.map(c => c.uuid),
+    ].filter(uuid => uuid !== 'N/A' && uuid !== undefined));
+    setUsedUuids(allUuids);
+  } catch (error) {
+    console.error('Error fetching data:', error);
+  }
+};
 
   const handleInputChange = (e) => {
     setNewContainer({ ...newContainer, [e.target.name]: e.target.value });
@@ -168,18 +171,18 @@ function LCMPage() {
     }
   };
 
-  const handleDeleteContainer = async (index) => {
-    const container = containers[index];
-    try {
-      await axios.post('/api/lcm/delete', { name: container.name });
-      const newContainers = containers.filter((_, i) => i !== index);
-      setContainers(newContainers);
-      setShowDeleteConfirm(null);
-      await fetchData();
-    } catch (err) {
-      console.error('Error deleting container:', err);
-    }
-  };
+const handleDeleteContainer = async (index) => {
+  const container = containers[index];
+  try {
+    await axios.post('/api/lcm/delete', { name: container.name });
+    const newContainers = containers.filter((_, i) => i !== index);
+    setContainers(newContainers);
+    setShowDeleteConfirm(null);
+    await fetchData(); // Add this line to refresh all data
+  } catch (err) {
+    console.error('Error deleting container:', err);
+  }
+};
 
   const handleInstallContainer = async (index) => {
     const container = containers[index];
@@ -216,45 +219,60 @@ function LCMPage() {
   };
 
   const handleStartContainer = async (index) => {
-    try {
-      await axios.post('/api/lcm/start', { unitIndex: existingContainers[index].index });
+  try {
+    const container = existingContainers[index];
+    if (container.unitIndex) {
+      console.log("Starting container with unitIndex:", container.unitIndex);
+      await axios.post('/api/lcm/start', { unitIndex: container.unitIndex });
       setShowStartConfirm(null);
       await fetchData();
-    } catch (err) {
-      console.error('Error starting container:', err);
+    } else {
+      console.warn("No unitIndex found for container:", container.name);
     }
-  };
+  } catch (err) {
+    console.error('Error starting container:', err);
+  }
+};
 
-  const handleStopContainer = async (index) => {
-    try {
-      // Optimistic update
+const handleStopContainer = async (index) => {
+  try {
+    const container = existingContainers[index];
+    if (container.unitIndex) {
+      console.log("Stopping container with unitIndex:", container.unitIndex);
       const updatedContainers = [...existingContainers];
-      updatedContainers[index].executionStatus = 'Idle'; // Assume Idle after stop
+      updatedContainers[index].executionStatus = 'Idle'; // Optimistic update
       setExistingContainers(updatedContainers);
       setShowStopConfirm(null);
-      await axios.post('/api/lcm/stop', { unitIndex: existingContainers[index].index });
+      await axios.post('/api/lcm/stop', { unitIndex: container.unitIndex });
       await fetchData(); // Refresh with actual data
-    } catch (err) {
-      console.error('Error stopping container:', err);
-      // Revert optimistic update if failed
-      await fetchData();
+    } else {
+      console.warn("No unitIndex found for container:", container.name);
     }
-  };
+  } catch (err) {
+    console.error('Error stopping container:', err);
+    await fetchData(); // Revert on failure
+  }
+};
 
-  const handleUninstallContainer = async (index) => {
-    try {
+const handleUninstallContainer = async (index) => {
+  try {
+    const container = existingContainers[index];
+    if (container.unitIndex && container.index) {
       await axios.post('/api/lcm/uninstall', {
-        unitIndex: existingContainers[index].index,
-        deploymentIndex: existingContainers[index].index,
+        unitIndex: container.unitIndex,
+        deploymentIndex: container.index, // Use index for deploymentUnit, adjust if needed
       });
       const newContainers = existingContainers.filter((_, i) => i !== index);
       setExistingContainers(newContainers);
       setShowUninstallConfirm(null);
       await fetchData();
-    } catch (err) {
-      console.error('Error uninstalling container:', err);
+    } else {
+      console.warn("No unitIndex or index found for container:", container.name);
     }
-  };
+  } catch (err) {
+    console.error('Error uninstalling container:', err);
+  }
+};
 
   const handleViewDetails = (container) => {
     setSelectedContainer(container);
@@ -482,148 +500,146 @@ function LCMPage() {
       </motion.div>
 
       <motion.div
+  initial={{ opacity: 0, y: 20 }}
+  animate={{ opacity: 1, y: 0 }}
+  transition={{ duration: 0.5, delay: 0.2, ease: 'easeOut' }}
+  className="bg-white/90 backdrop-blur-sm p-6 rounded-2xl shadow-2xl border border-gray-100"
+>
+  <h2 className="text-xl font-semibold mb-6 text-gray-800">Active Services</h2>
+  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+    {existingContainers.map((container, index) => (
+      <motion.div
+        key={container.duid || container.uuid || container.index} // Use unique identifier
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, delay: 0.2, ease: 'easeOut' }}
-        className="bg-white/90 backdrop-blur-sm p-6 rounded-2xl shadow-2xl border border-gray-100"
+        whileHover={{ scale: 1.03 }}
+        className="p-4 bg-gradient-to-br from-white to-gray-100 rounded-xl border border-gray-200 shadow-lg transition-all duration-300 cursor-pointer relative"
+        onClick={() => handleViewDetails(container)}
       >
-        <h2 className="text-xl font-semibold mb-6 text-gray-800">Active Services</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {existingContainers.map((container, index) => (
-            <motion.div
-              key={index}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              whileHover={{ scale: 1.03 }}
-              className="p-4 bg-gradient-to-br from-white to-gray-100 rounded-xl border border-gray-200 shadow-lg transition-all duration-300 cursor-pointer relative"
-              onClick={() => handleViewDetails(container)}
-            >
-              <div className="absolute top-2 left-2">
-                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                  container.executionStatus === 'Active' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
-                }`}>
-                  {container.executionStatus || 'N/A'}
-                </span>
-              </div>
-              <div className="absolute top-2 right-2">
-                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                  container.deploymentStatus === 'Installed' ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'
-                }`}>
-                  {container.deploymentStatus || 'N/A'}
-                </span>
-              </div>
+        <div className="absolute top-2 left-2">
+          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+            container.executionStatus === 'Active' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+          }`}>
+            {container.executionStatus || 'N/A'}
+          </span>
+        </div>
+        <div className="absolute top-2 right-2">
+          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+            container.deploymentStatus === 'Installed' ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'
+          }`}>
+            {container.deploymentStatus || 'N/A'}
+          </span>
+        </div>
 
-              <h3 className="text-base font-semibold mt-2 mb-1 text-gray-800">{container.name}</h3>
-              <p className="text-xs text-gray-600 mb-1">Vendor: {container.vendor || 'N/A'}</p>
-              <p className="text-xs text-gray-600 mb-1">Version: {container.version || 'N/A'}</p>
-              <div className="flex gap-1 mt-2">
-                {container.executionStatus === 'Idle' && (
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={(e) => { e.stopPropagation(); setShowStartConfirm(index); }}
-                    className="flex-1 px-2 py-1 bg-tinno-green-700 text-white rounded-full hover:bg-tinno-green-600 transition-colors flex items-center justify-center gap-1 shadow-md text-xs"
-                  >
-                    <Play size={14} />
-                    <span className="text-xs">Start</span>
-                  </motion.button>
-                )}
-                {container.executionStatus === 'Active' && (
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={(e) => { e.stopPropagation(); setShowStopConfirm(index); }}
-                    className="flex-1 px-2 py-1 bg-yellow-600 text-white rounded-full hover:bg-yellow-700 transition-colors flex items-center justify-center gap-1 shadow-md text-xs"
-                  >
-                    <Trash2 size={14} />
-                    <span className="text-xs">Stop</span>
-                  </motion.button>
-                )}
-                {showStartConfirm === index && (
-                  <div className="mt-2 p-2 bg-green-50 rounded-lg border border-green-200">
-                    <p className="text-xs text-green-700">Are you sure you want to start {container.name}?</p>
-                    <div className="mt-2 flex justify-end gap-1">
-                      <motion.button
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={(e) => { e.stopPropagation(); handleStartContainer(index); }}
-                        className="px-1 py-1 bg-tinno-green-700 text-white rounded-full hover:bg-tinno-green-600 text-xs"
-                      >
-                        Yes
-                      </motion.button>
-                      <motion.button
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={(e) => { e.stopPropagation(); setShowStartConfirm(null); }}
-                        className="px-1 py-1 bg-gray-300 text-gray-800 rounded-full hover:bg-gray-400 text-xs"
-                      >
-                        No
-                      </motion.button>
-                    </div>
-                  </div>
-                )}
-                {showStopConfirm === index && (
-                  <div className="mt-2 p-2 bg-yellow-50 rounded-lg border border-yellow-200">
-                    <p className="text-xs text-yellow-700">Are you sure you want to stop {container.name}?</p>
-                    <div className="mt-2 flex justify-end gap-1">
-                      <motion.button
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={(e) => { e.stopPropagation(); handleStopContainer(index); }}
-                        className="px-1 py-1 bg-yellow-600 text-white rounded-full hover:bg-yellow-700 text-xs"
-                      >
-                        Yes
-                      </motion.button>
-                      <motion.button
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={(e) => { e.stopPropagation(); setShowStopConfirm(null); }}
-                        className="px-1 py-1 bg-gray-300 text-gray-800 rounded-full hover:bg-gray-400 text-xs"
-                      >
-                        No
-                      </motion.button>
-                    </div>
-                  </div>
-                )}
+        <h3 className="text-base font-semibold mt-2 mb-1 text-gray-800">{container.name}</h3>
+        <p className="text-xs text-gray-600 mb-1">Vendor: {container.vendor || 'N/A'}</p>
+        <p className="text-xs text-gray-600 mb-1">Version: {container.version || 'N/A'}</p>
+        <div className="flex gap-1 mt-2">
+          {container.executionStatus === 'Idle' && (
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={(e) => { e.stopPropagation(); setShowStartConfirm(index); }}
+              className="flex-1 px-2 py-1 bg-tinno-green-700 text-white rounded-full hover:bg-tinno-green-600 transition-colors flex items-center justify-center gap-1 shadow-md text-xs"
+            >
+              <Play size={14} />
+              <span className="text-xs">Start</span>
+            </motion.button>
+          )}
+          {container.executionStatus === 'Active' && (
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={(e) => { e.stopPropagation(); setShowStopConfirm(index); }}
+              className="flex-1 px-2 py-1 bg-yellow-600 text-white rounded-full hover:bg-yellow-700 transition-colors flex items-center justify-center gap-1 shadow-md text-xs"
+            >
+              <Trash2 size={14} />
+              <span className="text-xs">Stop</span>
+            </motion.button>
+          )}
+          {showStartConfirm === index && (
+            <div className="mt-2 p-2 bg-green-50 rounded-lg border border-green-200">
+              <p className="text-xs text-green-700">Are you sure you want to start {container.name}?</p>
+              <div className="mt-2 flex justify-end gap-1">
                 <motion.button
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
-                  onClick={(e) => { e.stopPropagation(); setShowUninstallConfirm(index); }}
-                  className="flex-1 px-2 py-1 bg-red-600 text-white rounded-full hover:bg-red-700 transition-colors flex items-center justify-center gap-1 shadow-md text-xs"
+                  onClick={(e) => { e.stopPropagation(); handleStartContainer(index); }}
+                  className="px-1 py-1 bg-tinno-green-700 text-white rounded-full hover:bg-tinno-green-600 text-xs"
                 >
-                  <Trash2 size={14} />
-                  <span className="text-xs">Delete</span>
+                  Yes
                 </motion.button>
-                {showUninstallConfirm === index && (
-                  <div className="mt-2 p-2 bg-red-50 rounded-lg border border-red-200" style={{ minWidth: '200px' }}>
-                    <p className="text-xs text-red-700">Are you sure you want to delete {container.name}?</p>
-                    <div className="mt-2 flex justify-end gap-2">
-                      <motion.button
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={(e) => { e.stopPropagation(); handleUninstallContainer(index); }}
-                        className="px-3 py-1 bg-red-600 text-white rounded-full hover:bg-red-700 text-xs"
-                        style={{ minWidth: '40px' }}
-                      >
-                        Yes
-                      </motion.button>
-                      <motion.button
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={(e) => { e.stopPropagation(); setShowUninstallConfirm(null); }}
-                        className="px-3 py-1 bg-gray-300 text-gray-800 rounded-full hover:bg-gray-400 text-xs"
-                        style={{ minWidth: '40px' }}
-                      >
-                        No
-                      </motion.button>
-                    </div>
-                  </div>
-                )}
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={(e) => { e.stopPropagation(); setShowStartConfirm(null); }}
+                  className="px-1 py-1 bg-gray-300 text-gray-800 rounded-full hover:bg-gray-400 text-xs"
+                >
+                  No
+                </motion.button>
               </div>
-            </motion.div>
-          ))}
+            </div>
+          )}
+          {showStopConfirm === index && (
+            <div className="mt-2 p-2 bg-yellow-50 rounded-lg border border-yellow-200">
+              <p className="text-xs text-yellow-700">Are you sure you want to stop {container.name}?</p>
+              <div className="mt-2 flex justify-end gap-1">
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={(e) => { e.stopPropagation(); handleStopContainer(index); }}
+                  className="px-1 py-1 bg-yellow-600 text-white rounded-full hover:bg-yellow-700 text-xs"
+                >
+                  Yes
+                </motion.button>
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={(e) => { e.stopPropagation(); setShowStopConfirm(null); }}
+                  className="px-1 py-1 bg-gray-300 text-gray-800 rounded-full hover:bg-gray-400 text-xs"
+                >
+                  No
+                </motion.button>
+              </div>
+            </div>
+          )}
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={(e) => { e.stopPropagation(); setShowUninstallConfirm(index); }}
+            className="flex-1 px-2 py-1 bg-red-600 text-white rounded-full hover:bg-red-700 transition-colors flex items-center justify-center gap-1 shadow-md text-xs"
+          >
+            <Trash2 size={14} />
+            <span className="text-xs">Delete</span>
+          </motion.button>
+          {showUninstallConfirm === index && (
+            <div className="mt-2 p-2 bg-red-50 rounded-lg border border-red-200">
+              <p className="text-xs text-red-700">Are you sure you want to delete {container.name}?</p>
+              <div className="mt-2 flex justify-end gap-1">
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={(e) => { e.stopPropagation(); handleUninstallContainer(index); }}
+                  className="px-1 py-1 bg-red-600 text-white rounded-full hover:bg-red-700 text-xs"
+                >
+                  Yes
+                </motion.button>
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={(e) => { e.stopPropagation(); setShowUninstallConfirm(null); }}
+                  className="px-1 py-1 bg-gray-300 text-gray-800 rounded-full hover:bg-gray-400 text-xs"
+                >
+                  No
+                </motion.button>
+              </div>
+            </div>
+          )}
         </div>
       </motion.div>
+    ))}
+  </div>
+</motion.div>
 
       {selectedContainer && (
         <motion.div

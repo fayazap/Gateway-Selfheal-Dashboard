@@ -281,11 +281,16 @@ app.post('/api/lcm/delete', async (req, res) => {
   const { name } = req.body;
   try {
     let containerLibrary = await loadData('containers.json');
+    const initialLength = containerLibrary.length;
     containerLibrary = containerLibrary.filter(c => c.name !== name);
+    
+    if (containerLibrary.length === initialLength) {
+      return res.status(404).json({ error: 'Container not found' });
+    }
+    
     await saveData('containers.json', containerLibrary);
     console.log(`Deleted container: ${name}`);
-    // await sshExec('/etc/init.d/timingila restart'); // Restart to rearrange indices
-    // res.json({ success: true, message: 'Container deleted from library' });
+    res.json({ success: true, message: 'Container deleted from library' });
   } catch (err) {
     res.status(500).json({ error: `Failed to delete container: ${err.message}` });
   }
