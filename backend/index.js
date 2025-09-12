@@ -305,6 +305,7 @@ app.post('/api/lcm/install', async (req, res) => {
     const installCommand = `ubus-cli "SoftwareModules.InstallDU(ExecutionEnvRef='generic', URL='${url}', UUID='${uuid}', Privileged=false, NumRequiredUIDs=10, HostObject=[{Source='/tmp/usp_cli',Destination='/var/usp_cli', Options='type=mount,bind'}], AutoStart=${autoStartValue})"`;
     await sshExec(installCommand);
     console.log(`Installed container: ${name} with UUID: ${uuid}, Autostart: ${autoStartValue}`);
+    await new Promise(resolve => setTimeout(resolve, 3000));
     await sshExec('/etc/init.d/timingila restart'); // Restart to rearrange indices
     res.json({ success: true, message: 'Container installed on device' });
   } catch (err) {
@@ -319,6 +320,7 @@ app.post('/api/lcm/stop', async (req, res) => {
     const stopCommand = `ubus-cli 'SoftwareModules.ExecutionUnit.${unitIndex}.SetRequestedState(RequestedState = "Idle")'`;
     await sshExec(stopCommand);
     console.log(`Stopped ExecutionUnit.${unitIndex}`);
+    await new Promise(resolve => setTimeout(resolve, 3000));
     res.json({ success: true, message: 'Container stopped' });
   } catch (err) {
     res.status(500).json({ error: `Failed to stop container: ${err.message}` });
@@ -331,6 +333,7 @@ app.post('/api/lcm/start', async (req, res) => {
     const startCommand = `ubus-cli 'SoftwareModules.ExecutionUnit.${unitIndex}.SetRequestedState(RequestedState = "Active")'`;
     await sshExec(startCommand);
     console.log(`Started ExecutionUnit.${unitIndex}`);
+    await new Promise(resolve => setTimeout(resolve, 3000));
     res.json({ success: true, message: 'Container started' });
   } catch (err) {
     res.status(500).json({ error: `Failed to start container: ${err.message}` });
@@ -346,6 +349,7 @@ app.post('/api/lcm/uninstall', async (req, res) => {
     await sshExec(stopCommand);
     await sshExec(uninstallCommand);
     console.log(`Uninstalled DeploymentUnit.${deploymentIndex} and stopped ExecutionUnit.${unitIndex}`);
+    await new Promise(resolve => setTimeout(resolve, 3000));
     await sshExec('/etc/init.d/timingila restart'); // Restart to rearrange indices
     res.json({ success: true, message: 'Container uninstalled' });
   } catch (err) {
