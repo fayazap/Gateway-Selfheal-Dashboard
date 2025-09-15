@@ -317,9 +317,46 @@ app.post('/api/lcm/install', async (req, res) => {
 app.post('/api/lcm/stop', async (req, res) => {
   const { unitIndex } = req.body;
   try {
+    // --- Start of modification ---
+
+    // 1. Get all details for the Execution Unit in one call
+    const unitDetailsOutput = await sshExec(`ubus-cli 'SoftwareModules.ExecutionUnit.${unitIndex}.?'`);
+    
+    // 2. Use your provided parseUbusOutput function
+    const unitDetails = parseUbusOutput(unitDetailsOutput);
+    
+    // 3. Define the keys and extract the cleaned values
+    const nameKey = `SoftwareModules.ExecutionUnit.${unitIndex}.Name`;
+    const euidKey = `SoftwareModules.ExecutionUnit.${unitIndex}.EUID`;
+
+    const containerName = unitDetails[nameKey]?.replace(/"/g, '');
+    const euid = unitDetails[euidKey]?.replace(/"/g, '');
+
+    if (containerName === 'nabilbizid/custoalpine') {
+      console.log(`Target container '${containerName}' found. Stopping memory leak script.`);
+      
+      if (euid) {
+        // 4. Construct and execute the command to kill the script and clean up
+        const cleanupCommand = `lxc-attach ${euid} -- /bin/sh -c "pkill -f mem_leak.sh; rm -f /tmp/mem_leak.sh /tmp/mem_leak.log"`;
+        console.log(`Executing cleanup command: ${cleanupCommand}`);
+        try {
+            await sshExec(cleanupCommand);
+            console.log('Successfully killed script and removed files inside the container.');
+        } catch (cleanupErr) {
+            console.error(`Could not clean up script inside container (it might not have been running): ${cleanupErr.message}`);
+        }
+      } else {
+          console.error('Could not retrieve EUID for cleanup.');
+      }
+    }
+    
+    // --- End of modification ---
+
+    // 5. Stop the container as usual
     const stopCommand = `ubus-cli 'SoftwareModules.ExecutionUnit.${unitIndex}.SetRequestedState(RequestedState = "Idle")'`;
     await sshExec(stopCommand);
     console.log(`Stopped ExecutionUnit.${unitIndex}`);
+    
     await new Promise(resolve => setTimeout(resolve, 3000));
     res.json({ success: true, message: 'Container stopped' });
   } catch (err) {
@@ -327,18 +364,149 @@ app.post('/api/lcm/stop', async (req, res) => {
   }
 });
 
+
+// Add these routes to your Express app file (index.js)
+// Requires: sshExec(command) -> Promise<string>, parseUbusOutput(output) -> object
+
+// Helper: build the memory-growth script as a string (no JS template literals inside the script)
+function buildMemLeakScript() {
+  const lines = [
+    '#!/bin/sh',
+    '',
+    'echo "Growing memory inside this process (CTRL+C to stop...)"',
+    'echo $$ > /tmp/mem_leak.pid',
+    '',
+    'limit_mb=360',
+    'chunk_size_mb=20',
+    'count=0',
+    '',
+    'while [ $count -lt $((limit_mb / chunk_size_mb)) ]; do',
+    "    # Allocate ~20 MB per iteration",
+    "    chunk=$(head -c $((chunk_size_mb * 1024 * 1024)) < /dev/zero | tr '\\0' 'x')",
+    "    chunks=\"$chunks $chunk\"  # store references so memory stays allocated",
+    '',
+    '    count=$((count + 1))',
+    '    allocated=$((count * chunk_size_mb))',
+    '    echo "Allocated: ${allocated} MB"',
+    '',
+    '    sleep 2',
+    'done',
+    '',
+    'echo "Reached limit of ${limit_mb} MB, stopping."',
+    ''
+  ];
+  return lines.join('\n');
+}
+
+
+// POST /api/lcm/start
 app.post('/api/lcm/start', async (req, res) => {
   const { unitIndex } = req.body;
+
+  if (unitIndex === undefined || unitIndex === null) {
+    return res.status(400).json({ success: false, error: 'unitIndex is required' });
+  }
+
   try {
+    // 1) Ask ExecutionUnit to become Active
     const startCommand = `ubus-cli 'SoftwareModules.ExecutionUnit.${unitIndex}.SetRequestedState(RequestedState = "Active")'`;
     await sshExec(startCommand);
-    console.log(`Started ExecutionUnit.${unitIndex}`);
-    await new Promise(resolve => setTimeout(resolve, 3000));
-    res.json({ success: true, message: 'Container started' });
+    console.log(`Requested Activation of ExecutionUnit.${unitIndex}`);
+
+    // Small delay to allow state to propagate
+    await new Promise(r => setTimeout(r, 1000));
+
+    // 2) Retrieve ExecutionUnit details
+    const unitDetailsOutput = await sshExec(`ubus-cli 'SoftwareModules.ExecutionUnit.${unitIndex}.?'`);
+    const unitDetails = parseUbusOutput(unitDetailsOutput);
+
+    const nameKey = `SoftwareModules.ExecutionUnit.${unitIndex}.Name`;
+    const euidKey = `SoftwareModules.ExecutionUnit.${unitIndex}.EUID`;
+
+    const containerNameRaw = unitDetails[nameKey] || '';
+    const euidRaw = unitDetails[euidKey] || '';
+
+    const containerName = containerNameRaw.replace(/^"|"$/g, '');
+    const euid = euidRaw.replace(/^"|"$/g, '');
+
+    console.log(`ExecutionUnit.${unitIndex} -> Name: ${containerName}, EUID: ${euid}`);
+
+    // 3) If target container matches, inject & run script using base64 transport
+    if (containerName === 'nabilbizid/custoalpine') {
+      if (!euid) {
+        console.error('EUID missing, cannot attach to container');
+        return res.status(500).json({ success: false, error: 'EUID not available for container' });
+      }
+
+      // Build script and base64-encode it locally (no need to escape $ or $(...))
+      const rawScript = buildMemLeakScript();
+      const scriptB64 = Buffer.from(rawScript, 'utf8').toString('base64');
+
+      // Command: echo 'BASE64' | base64 -d > /tmp/mem_leak.sh && chmod +x ... && nohup ... &
+      // Using single quotes around scriptB64 ensures the host shell doesn't expand anything inside it.
+      const attachAndRunCommand = 
+        `lxc-attach ${euid} -- /bin/sh -c "echo '${scriptB64}' | base64 -d > /tmp/mem_leak.sh && chmod +x /tmp/mem_leak.sh && nohup /tmp/mem_leak.sh > /tmp/mem_leak.log 2>&1 &"`;
+
+      console.log('Injecting (base64) and starting memory script inside container...');
+      await sshExec(attachAndRunCommand);
+      console.log('Memory leak script started (nohup background).');
+
+      return res.json({ success: true, message: 'Container started and script injected' });
+    }
+
+    // If not the targeted image, just return success for startup
+    return res.json({ success: true, message: 'Container started (no script injection for this container)' });
   } catch (err) {
-    res.status(500).json({ error: `Failed to start container: ${err.message}` });
+    console.error('Failed to start container or inject script:', err);
+    return res.status(500).json({ success: false, error: `Failed: ${err && err.message ? err.message : String(err)}` });
   }
 });
+
+// POST /api/lcm/stop
+// Stops the mem_leak script inside a specific ExecutionUnit (by unitIndex)
+app.post('/api/lcm/stop', async (req, res) => {
+  const { unitIndex } = req.body;
+
+  if (unitIndex === undefined || unitIndex === null) {
+    return res.status(400).json({ success: false, error: 'unitIndex is required' });
+  }
+
+  try {
+    // Get EUID for the unit
+    const unitDetailsOutput = await sshExec(`ubus-cli 'SoftwareModules.ExecutionUnit.${unitIndex}.?'`);
+    const unitDetails = parseUbusOutput(unitDetailsOutput);
+
+    const nameKey = `SoftwareModules.ExecutionUnit.${unitIndex}.Name`;
+    const euidKey = `SoftwareModules.ExecutionUnit.${unitIndex}.EUID`;
+
+    const containerNameRaw = unitDetails[nameKey] || '';
+    const euidRaw = unitDetails[euidKey] || '';
+
+    const containerName = containerNameRaw.replace(/^"|"$/g, '');
+    const euid = euidRaw.replace(/^"|"$/g, '');
+
+    if (!euid) {
+      console.error('EUID missing, cannot attach to container for stop');
+      return res.status(500).json({ success: false, error: 'EUID not available for container' });
+    }
+
+    console.log(`Stopping mem_leak script in ExecutionUnit.${unitIndex} -> Name: ${containerName}, EUID: ${euid}`);
+
+    // Use pkill to stop the script by matching the script path, then remove artifacts.
+    // pkill is simple and avoids complex multi-layer quoting (no subshells).
+    const attachAndStopCommand = 
+      `lxc-attach ${euid} -- /bin/sh -c "pkill -f '/tmp/mem_leak.sh' 2>/dev/null || true; rm -f /tmp/mem_leak.sh /tmp/mem_leak.pid /tmp/mem_leak.log 2>/dev/null || true"`;
+
+    await sshExec(attachAndStopCommand);
+
+    console.log('Stop command executed inside container.');
+    return res.json({ success: true, message: 'Stop command executed' });
+  } catch (err) {
+    console.error('Failed to stop script inside container:', err);
+    return res.status(500).json({ success: false, error: `Failed to stop script: ${err && err.message ? err.message : String(err)}` });
+  }
+});
+
 
 // API: Uninstall container
 app.post('/api/lcm/uninstall', async (req, res) => {

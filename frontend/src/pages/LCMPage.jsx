@@ -151,8 +151,13 @@ function LCMPage() {
 };
 
   const handleInputChange = (e) => {
-    setNewContainer({ ...newContainer, [e.target.name]: e.target.value });
+    const { name, value, type, checked } = e.target;
+    setNewContainer({
+      ...newContainer,
+      [name]: type === "checkbox" ? checked : value,
+    });
   };
+
 
   const handleAddContainer = async (e) => {
     e.preventDefault();
