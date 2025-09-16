@@ -377,7 +377,7 @@ function buildMemLeakScript() {
     'echo $$ > /tmp/mem_leak.pid',
     '',
     'limit_mb=360',
-    'chunk_size_mb=20',
+    'chunk_size_mb=15',
     'count=0',
     '',
     'while [ $count -lt $((limit_mb / chunk_size_mb)) ]; do',
