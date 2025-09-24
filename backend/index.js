@@ -156,11 +156,11 @@ app.get('/api/selfheal', async (req, res) => {
     const params = parseUbusOutput(output);
 
     const reboots = [];
-    const rebootCount = parseInt(params['X_TINNO-COM_SelfHeal.RebootNumberOfEntries'] || 0);
+    const rebootCount = parseInt(params['X_TINNO-COM_SelfHeal.EventsNumberOfEntries'] || 0);
     for (let i = 1; i <= rebootCount; i++) {
       reboots.push({
-        reason: params[`X_TINNO-COM_SelfHeal.Reboot.${i}.Reason`] || 'N/A',
-        time: params[`X_TINNO-COM_SelfHeal.Reboot.${i}.Time`] || 'N/A'
+        reason: params[`X_TINNO-COM_SelfHeal.Events.${i}.Reason`] || 'N/A',
+        time: params[`X_TINNO-COM_SelfHeal.Events.${i}.Time`] || 'N/A'
       });
     }
 

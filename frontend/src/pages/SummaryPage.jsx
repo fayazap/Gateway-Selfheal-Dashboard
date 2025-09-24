@@ -427,7 +427,7 @@ function SummaryPage() {
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-lg font-semibold text-gray-800 flex items-center">
               <Power className="w-5 h-5 mr-1 text-tinno-green-600" />
-              Reboot Information
+              Events Information
             </h3>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -435,7 +435,7 @@ function SummaryPage() {
               <div className="flex items-center space-x-2">
                 <Clock className="w-6 h-6 text-tinno-green-600" />
                 <div>
-                  <p className="text-xs text-gray-600">Last Reboot Time</p>
+                  <p className="text-xs text-gray-600">Last Event Time</p>
                   <p className="text-base font-semibold text-gray-900">{selfheal.lastRebootTime}</p>
                 </div>
               </div>
@@ -444,7 +444,7 @@ function SummaryPage() {
               <div className="flex items-center space-x-2">
                 <AlertCircle className="w-6 h-6 text-tinno-green-600" />
                 <div>
-                  <p className="text-xs text-gray-600">Last Reboot Reason</p>
+                  <p className="text-xs text-gray-600">Last Event Reason</p>
                   <p className="text-base font-semibold text-gray-900">{selfheal.lastRebootReason}</p>
                 </div>
               </div>
@@ -453,7 +453,7 @@ function SummaryPage() {
               <div className="flex items-center space-x-2">
                 <RefreshCw className="w-6 h-6 text-tinno-green-600" />
                 <div>
-                  <p className="text-xs text-gray-600">Number of Reboots</p>
+                  <p className="text-xs text-gray-600">Number of Events</p>
                   <p className="text-base font-semibold text-gray-900">{selfheal.rebootCount}</p>
                 </div>
               </div>
