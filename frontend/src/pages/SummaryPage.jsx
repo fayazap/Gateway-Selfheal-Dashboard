@@ -19,7 +19,6 @@ import {
   Filler,
 } from 'chart.js';
 import 'chartjs-adapter-date-fns'; // For time scale support
-
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, TimeScale, Filler);
 
 function SummaryPage() {
@@ -103,7 +102,6 @@ function SummaryPage() {
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
-
   const cpuChartRef = useRef(null);
   const memoryChartRef = useRef(null);
   const tempChartRef = useRef(null);
@@ -117,9 +115,7 @@ function SummaryPage() {
         axios.get('/api/selfheal'),
         axios.get('/api/stats'),
       ]);
-
       if (summaryResponse.status === 200) setSummary(summaryResponse.data);
-
       if (selfhealResponse.status === 200 && statsResponse.status === 200) {
         const newSelfheal = {
           lastRebootReason: selfhealResponse.data.lastRebootReason,
@@ -130,7 +126,6 @@ function SummaryPage() {
           avgTemperatureThreshold: selfhealResponse.data.avgTemperatureThreshold,
         };
         setSelfheal(newSelfheal);
-
         updateChartsFromStats(
           statsResponse.data.cpuStats || [],
           statsResponse.data.memoryStats || [],
@@ -160,17 +155,8 @@ function SummaryPage() {
     tempStats = [],
     thresholds = { avgCpuThreshold: 0, avgMemoryThreshold: 0, avgTemperatureThreshold: 0 }
   ) => {
-    const formatTime = (isoTime) => {
-      const t = new Date(isoTime);
-      return isNaN(t.getTime()) ? new Date() : t;
-    };
-
-    const limitLast20 = (data) =>
-      data
-        .filter(d => Date.now() - new Date(d.time).getTime() < 30 * 60 * 1000)
-        .slice(-20);
-
-
+    const formatTime = (isoTime) => new Date(isoTime);
+    const limitLast20 = (data) => (data.length ? data.slice(-20) : []);
     // Helper to avoid unnecessary updates if data is unchanged
     const arraysEqual = (a = [], b = []) =>
       a.length === b.length && a.every((v, i) => v.x.getTime() === b[i].x.getTime() && v.y === b[i].y);
@@ -230,13 +216,10 @@ function SummaryPage() {
     scales: {
       x: {
         type: 'time',
-        min: Date.now() - 30 * 60 * 1000, // last 30 minutes
-        max: Date.now(),
         time: {
-          tooltipFormat: 'HH:mm:ss',
+          unit: 'hour',  // Changed from 'minute' to 'hour' to prevent "too far apart" error
           displayFormats: {
-            second: 'HH:mm:ss',
-            minute: 'HH:mm',
+            hour: 'HH:mm',  // Still shows minutes (e.g., 14:35)
           },
         },
         title: {
@@ -344,7 +327,6 @@ function SummaryPage() {
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-lg font-semibold text-gray-800">Device Status</h2>
           </div>
-
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             <div className="bg-tinno-green-50 p-2 rounded">
               <div className="flex items-center space-x-2">
@@ -355,7 +337,6 @@ function SummaryPage() {
                 </div>
               </div>
             </div>
-
             <div className="bg-tinno-green-50 p-2 rounded">
               <div className="flex items-center space-x-2">
                 <Cpu className="w-6 h-6 text-tinno-green-600" />
@@ -365,7 +346,6 @@ function SummaryPage() {
                 </div>
               </div>
             </div>
-
             <div className="bg-tinno-green-50 p-2 rounded">
               <div className="flex items-center space-x-2">
                 <MemoryStick className="w-6 h-6 text-tinno-green-600" />
