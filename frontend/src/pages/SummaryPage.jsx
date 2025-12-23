@@ -160,8 +160,16 @@ function SummaryPage() {
     tempStats = [],
     thresholds = { avgCpuThreshold: 0, avgMemoryThreshold: 0, avgTemperatureThreshold: 0 }
   ) => {
-    const formatTime = (isoTime) => new Date(isoTime);
-    const limitLast20 = (data) => (data.length ? data.slice(-20) : []);
+    const formatTime = (isoTime) => {
+      const t = new Date(isoTime);
+      return isNaN(t.getTime()) ? new Date() : t;
+    };
+
+    const limitLast20 = (data) =>
+      data
+        .filter(d => Date.now() - new Date(d.time).getTime() < 30 * 60 * 1000)
+        .slice(-20);
+
 
     // Helper to avoid unnecessary updates if data is unchanged
     const arraysEqual = (a = [], b = []) =>
@@ -222,9 +230,12 @@ function SummaryPage() {
     scales: {
       x: {
         type: 'time',
+        min: Date.now() - 30 * 60 * 1000, // last 30 minutes
+        max: Date.now(),
         time: {
-          unit: 'minute',
+          tooltipFormat: 'HH:mm:ss',
           displayFormats: {
+            second: 'HH:mm:ss',
             minute: 'HH:mm',
           },
         },
