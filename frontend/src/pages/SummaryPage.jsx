@@ -18,8 +18,39 @@ import {
   TimeScale,
   Filler,
 } from 'chart.js';
-import 'chartjs-adapter-date-fns'; // For time scale support
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, TimeScale, Filler);
+import 'chartjs-adapter-date-fns';
+
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  TimeScale,
+  Filler
+);
+
+// Theme colors matching the page gradient (#c3d7f7 → #cae7ff)
+const CHART_THEME = {
+  primary: {
+    line: '#eb7c15ff',              // blue-500
+    area: 'rgba(243, 246, 59, 0.16)',
+  },
+  threshold: {
+    line: '#ec4899',              // pink-500 (softer warning)
+    area: 'rgba(236, 72, 153, 0.08)',
+  },
+  temperature: {
+    line: '#eb7c15ff',              // violet-500
+    area: 'rgba(243, 246, 59, 0.16)',
+  },
+  grid: '#dbd7adff',                // very light blue-gray
+  text: '#1838a1ff',                // indigo-800 / blue-900
+  tooltipBg: 'rgba(53, 112, 167, 0.92)',
+  tooltipBorder: '#60a5fa',
+};
 
 function SummaryPage() {
   const [summary, setSummary] = useState({});
@@ -31,13 +62,14 @@ function SummaryPage() {
     avgMemoryThreshold: 0,
     avgTemperatureThreshold: 0,
   });
+
   const [cpuData, setCpuData] = useState({
     datasets: [
       {
         label: 'CPU Usage (%)',
         data: [],
-        borderColor: '#28a745',
-        backgroundColor: 'rgba(40, 167, 69, 0.2)',
+        borderColor: CHART_THEME.primary.line,
+        backgroundColor: CHART_THEME.primary.area,
         fill: true,
         tension: 0.4,
         pointRadius: 0,
@@ -46,21 +78,22 @@ function SummaryPage() {
       {
         label: 'Threshold (0%)',
         data: [],
-        borderColor: '#dc3545',
-        backgroundColor: 'rgba(220, 53, 69, 0.1)',
+        borderColor: CHART_THEME.threshold.line,
+        backgroundColor: CHART_THEME.threshold.area,
         fill: false,
         borderDash: [5, 5],
         pointRadius: 0,
       },
     ],
   });
+
   const [memoryData, setMemoryData] = useState({
     datasets: [
       {
         label: 'Memory Usage (%)',
         data: [],
-        borderColor: '#28a745',
-        backgroundColor: 'rgba(40, 167, 69, 0.2)',
+        borderColor: CHART_THEME.primary.line,
+        backgroundColor: CHART_THEME.primary.area,
         fill: true,
         tension: 0.4,
         pointRadius: 0,
@@ -69,21 +102,22 @@ function SummaryPage() {
       {
         label: 'Threshold (0%)',
         data: [],
-        borderColor: '#dc3545',
-        backgroundColor: 'rgba(220, 53, 69, 0.1)',
+        borderColor: CHART_THEME.threshold.line,
+        backgroundColor: CHART_THEME.threshold.area,
         fill: false,
         borderDash: [5, 5],
         pointRadius: 0,
       },
     ],
   });
+
   const [tempData, setTempData] = useState({
     datasets: [
       {
         label: 'Temperature (°C)',
         data: [],
-        borderColor: '#ff9800',
-        backgroundColor: 'rgba(255, 152, 0, 0.2)',
+        borderColor: CHART_THEME.temperature.line,
+        backgroundColor: CHART_THEME.temperature.area,
         fill: true,
         tension: 0.4,
         pointRadius: 0,
@@ -92,21 +126,22 @@ function SummaryPage() {
       {
         label: 'Threshold (0°C)',
         data: [],
-        borderColor: '#dc3545',
-        backgroundColor: 'rgba(220, 53, 69, 0.1)',
+        borderColor: CHART_THEME.threshold.line,
+        backgroundColor: CHART_THEME.threshold.area,
         fill: false,
         borderDash: [5, 5],
         pointRadius: 0,
       },
     ],
   });
+
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+
   const cpuChartRef = useRef(null);
   const memoryChartRef = useRef(null);
   const tempChartRef = useRef(null);
 
-  // Fetch all data and update states atomically
   const fetchAndUpdateAll = async () => {
     setError('');
     try {
@@ -115,17 +150,20 @@ function SummaryPage() {
         axios.get('/api/selfheal'),
         axios.get('/api/stats'),
       ]);
+
       if (summaryResponse.status === 200) setSummary(summaryResponse.data);
+
       if (selfhealResponse.status === 200 && statsResponse.status === 200) {
         const newSelfheal = {
-          lastRebootReason: selfhealResponse.data.lastRebootReason,
-          lastRebootTime: selfhealResponse.data.lastRebootTime,
-          rebootCount: selfhealResponse.data.rebootCount,
-          avgCpuThreshold: selfhealResponse.data.avgCpuThreshold,
-          avgMemoryThreshold: selfhealResponse.data.avgMemoryThreshold,
-          avgTemperatureThreshold: selfhealResponse.data.avgTemperatureThreshold,
+          lastRebootReason: selfhealResponse.data.lastRebootReason || 'No History',
+          lastRebootTime: selfhealResponse.data.lastRebootTime || 'No History',
+          rebootCount: selfhealResponse.data.rebootCount || 0,
+          avgCpuThreshold: selfhealResponse.data.avgCpuThreshold || 0,
+          avgMemoryThreshold: selfhealResponse.data.avgMemoryThreshold || 0,
+          avgTemperatureThreshold: selfhealResponse.data.avgTemperatureThreshold || 0,
         };
         setSelfheal(newSelfheal);
+
         updateChartsFromStats(
           statsResponse.data.cpuStats || [],
           statsResponse.data.memoryStats || [],
@@ -136,7 +174,7 @@ function SummaryPage() {
         throw new Error('Failed to load selfheal or stats data');
       }
     } catch (err) {
-      console.error('Error fetching data', err);
+      console.error('Error fetching data:', err);
       setError('Failed to update charts - Ensure backend is running');
     } finally {
       setLoading(false);
@@ -153,17 +191,25 @@ function SummaryPage() {
     cpuStats = [],
     memoryStats = [],
     tempStats = [],
-    thresholds = { avgCpuThreshold: 0, avgMemoryThreshold: 0, avgTemperatureThreshold: 0 }
+    thresholds = {}
   ) => {
     const formatTime = (isoTime) => new Date(isoTime);
     const limitLast20 = (data) => (data.length ? data.slice(-20) : []);
-    // Helper to avoid unnecessary updates if data is unchanged
+
     const arraysEqual = (a = [], b = []) =>
-      a.length === b.length && a.every((v, i) => v.x.getTime() === b[i].x.getTime() && v.y === b[i].y);
+      a.length === b.length &&
+      a.every((v, i) => v.x.getTime() === b[i].x.getTime() && v.y === b[i].y);
 
     // CPU
-    const cpuUsageData = limitLast20(cpuStats).map((stat) => ({ x: formatTime(stat.time), y: stat.value || 0 }));
-    const cpuThresholdData = cpuUsageData.map((point) => ({ x: point.x, y: thresholds.avgCpuThreshold }));
+    const cpuUsageData = limitLast20(cpuStats).map((stat) => ({
+      x: formatTime(stat.time),
+      y: stat.value || 0,
+    }));
+    const cpuThresholdData = cpuUsageData.map((point) => ({
+      x: point.x,
+      y: thresholds.avgCpuThreshold || 0,
+    }));
+
     if (
       !arraysEqual(cpuUsageData, cpuData.datasets[0].data) ||
       !arraysEqual(cpuThresholdData, cpuData.datasets[1].data) ||
@@ -172,14 +218,25 @@ function SummaryPage() {
       setCpuData({
         datasets: [
           { ...cpuData.datasets[0], data: cpuUsageData },
-          { ...cpuData.datasets[1], data: cpuThresholdData, label: `Threshold (${thresholds.avgCpuThreshold}%)` },
+          {
+            ...cpuData.datasets[1],
+            data: cpuThresholdData,
+            label: `Threshold (${thresholds.avgCpuThreshold}%)`,
+          },
         ],
       });
     }
 
     // Memory
-    const memoryUsageData = limitLast20(memoryStats).map((stat) => ({ x: formatTime(stat.time), y: stat.value || 0 }));
-    const memoryThresholdData = memoryUsageData.map((point) => ({ x: point.x, y: thresholds.avgMemoryThreshold }));
+    const memoryUsageData = limitLast20(memoryStats).map((stat) => ({
+      x: formatTime(stat.time),
+      y: stat.value || 0,
+    }));
+    const memoryThresholdData = memoryUsageData.map((point) => ({
+      x: point.x,
+      y: thresholds.avgMemoryThreshold || 0,
+    }));
+
     if (
       !arraysEqual(memoryUsageData, memoryData.datasets[0].data) ||
       !arraysEqual(memoryThresholdData, memoryData.datasets[1].data) ||
@@ -188,47 +245,63 @@ function SummaryPage() {
       setMemoryData({
         datasets: [
           { ...memoryData.datasets[0], data: memoryUsageData },
-          { ...memoryData.datasets[1], data: memoryThresholdData, label: `Threshold (${thresholds.avgMemoryThreshold}%)` },
+          {
+            ...memoryData.datasets[1],
+            data: memoryThresholdData,
+            label: `Threshold (${thresholds.avgMemoryThreshold}%)`,
+          },
         ],
       });
     }
 
     // Temperature
-    const tempDataPoints = limitLast20(tempStats).map((stat) => ({ x: formatTime(stat.time), y: stat.value || 0 }));
-    const tempThresholdData = tempDataPoints.map((point) => ({ x: point.x, y: thresholds.avgTemperatureThreshold }));
+    const tempUsageData = limitLast20(tempStats).map((stat) => ({
+      x: formatTime(stat.time),
+      y: stat.value || 0,
+    }));
+    const tempThresholdData = tempUsageData.map((point) => ({
+      x: point.x,
+      y: thresholds.avgTemperatureThreshold || 0,
+    }));
+
     if (
-      !arraysEqual(tempDataPoints, tempData.datasets[0].data) ||
+      !arraysEqual(tempUsageData, tempData.datasets[0].data) ||
       !arraysEqual(tempThresholdData, tempData.datasets[1].data) ||
       tempData.datasets[1].label !== `Threshold (${thresholds.avgTemperatureThreshold}°C)`
     ) {
       setTempData({
         datasets: [
-          { ...tempData.datasets[0], data: tempDataPoints },
-          { ...tempData.datasets[1], data: tempThresholdData, label: `Threshold (${thresholds.avgTemperatureThreshold}°C)` },
+          { ...tempData.datasets[0], data: tempUsageData },
+          {
+            ...tempData.datasets[1],
+            data: tempThresholdData,
+            label: `Threshold (${thresholds.avgTemperatureThreshold}°C)`,
+          },
         ],
       });
     }
   };
 
-  const chartOptions = {
+  const baseChartOptions = {
     responsive: true,
     maintainAspectRatio: false,
     scales: {
       x: {
         type: 'time',
         time: {
-          unit: 'hour',  // Changed from 'minute' to 'hour' to prevent "too far apart" error
+          unit: 'hour',
           displayFormats: {
-            hour: 'HH:mm',  // Still shows minutes (e.g., 14:35)
+            hour: 'HH:mm',
           },
         },
         title: {
           display: true,
           text: 'Time (Last 20 Records)',
           font: { size: 14, weight: 'bold' },
-          color: '#333333',
+          color: CHART_THEME.text,
         },
-        grid: { color: '#e0e0e0' },
+        grid: { color: CHART_THEME.grid },
+        ticks: { color: CHART_THEME.text },
       },
       y: {
         beginAtZero: true,
@@ -237,25 +310,37 @@ function SummaryPage() {
           display: true,
           text: 'Percentage (%)',
           font: { size: 14, weight: 'bold' },
-          color: '#333333',
+          color: CHART_THEME.text,
         },
-        grid: { color: '#e0e0e0' },
+        grid: { color: CHART_THEME.grid },
+        ticks: { color: CHART_THEME.text },
       },
     },
     plugins: {
       legend: {
         position: 'top',
-        labels: { font: { size: 12, weight: 'bold' }, color: '#333333' },
+        labels: {
+          font: { size: 12, weight: 'bold' },
+          color: CHART_THEME.text,
+          usePointStyle: true,
+          boxWidth: 10,
+        },
       },
       tooltip: {
         enabled: true,
         mode: 'index',
         intersect: false,
+        backgroundColor: CHART_THEME.tooltipBg,
+        titleColor: '#ffffff',
+        bodyColor: '#e0f2fe',
+        borderColor: CHART_THEME.tooltipBorder,
+        borderWidth: 1,
         callbacks: {
           label(context) {
-            return `${context.dataset.label}: ${
-              context.parsed.y
-            }${context.dataset.label.includes('Threshold') || context.dataset.label.includes('Temperature') ? '' : '%'}`;
+            const value = context.parsed.y;
+            const label = context.dataset.label;
+            const unit = label.includes('Temperature') ? '°C' : '%';
+            return `${label}: ${value}${unit}`;
           },
         },
       },
@@ -267,17 +352,15 @@ function SummaryPage() {
   };
 
   const tempChartOptions = {
-    ...chartOptions,
+    ...baseChartOptions,
     scales: {
-      ...chartOptions.scales,
+      ...baseChartOptions.scales,
       y: {
-        ...chartOptions.scales.y,
-        max: 150, // accommodate temperature range
+        ...baseChartOptions.scales.y,
+        max: 150,
         title: {
-          display: true,
+          ...baseChartOptions.scales.y.title,
           text: 'Temperature (°C)',
-          font: { size: 14, weight: 'bold' },
-          color: '#333333',
         },
       },
     },
@@ -285,10 +368,10 @@ function SummaryPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-tinno-green-50 to-tinno-green-100 flex items-center justify-center p-2">
+      <div className="min-h-screen bg-gradient-to-br from-[#83adec] to-[#bcd7ff] flex items-center justify-center p-2">
         <div className="bg-white rounded-xl shadow-lg w-full max-w-3xl p-4">
           <div className="text-center">
-            <div className="w-12 h-12 border-4 border-tinno-green-200 border-t-tinno-green-600 rounded-full animate-spin mx-auto mb-2"></div>
+            <div className="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-2"></div>
             <h2 className="text-lg font-semibold text-gray-800 mb-1">Retrieving Device Information</h2>
             <p className="text-gray-600 text-sm">Please wait...</p>
           </div>
@@ -299,20 +382,19 @@ function SummaryPage() {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-tinno-green-50 to-tinno-green-100 flex items-center justify-center p-2">
+      <div className="min-h-screen bg-gradient-to-br from-[#c3d7f7] to-[#cae7ff] flex items-center justify-center p-2">
         <div className="bg-white rounded-xl shadow-lg w-full max-w-3xl p-4">
           <div className="text-center">
             <Globe className="w-12 h-12 text-red-500 mx-auto mb-2" />
             <h2 className="text-lg font-semibold text-gray-800 mb-1">Error Loading Device Details</h2>
             <p className="text-gray-600 text-sm mb-3">{error}</p>
-            <div className="space-x-2">
-              <button
-                onClick={fetchAndUpdateAll}
-                className="bg-tinno-green-600 hover:bg-tinno-green-700 text-white px-4 py-1 rounded transition-colors duration-200 text-sm"
-              >
-                Try Again
-              </button>
-            </div>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={fetchAndUpdateAll}
+            >
+              Try Again
+            </Button>
           </div>
         </div>
       </div>
@@ -320,181 +402,168 @@ function SummaryPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-tinno-green-50 to-tinno-green-100 p-2">
-      <div className="max-w-5xl mx-auto">
-        {/* Device Status Card */}
-        <div className="bg-white rounded-xl mt-2 shadow-md p-4 mb-4">
-          <div className="flex items-center justify-between mb-2">
-            <h2 className="text-lg font-semibold text-gray-800">Device Status</h2>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            <div className="bg-tinno-green-50 p-2 rounded">
-              <div className="flex items-center space-x-2">
-                <Clock className="w-6 h-6 text-tinno-green-600" />
+    <div className="min-h-screen bg-gradient-to-br from-[#c3d7f7] to-[#cae7ff] p-2">
+      <div className="max-w-5xl mx-auto space-y-6">
+
+        {/* Device Status */}
+        <div className="bg-white/90 backdrop-blur-sm rounded-xl shadow-md p-5">
+          <h2 className="text-lg font-semibold text-gray-800 mb-4">Device Status</h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-[#dbebff] p-4 rounded-lg">
+              <div className="flex items-center space-x-3">
+                <Clock className="w-6 h-6 text-blue-600" />
                 <div>
                   <p className="text-xs text-gray-600">Uptime</p>
-                  <p className="text-base font-semibold text-gray-900">{summary.uptime || 'N/A'}</p>
+                  <p className="text-lg font-semibold text-gray-900">{summary.uptime || 'N/A'}</p>
                 </div>
               </div>
             </div>
-            <div className="bg-tinno-green-50 p-2 rounded">
-              <div className="flex items-center space-x-2">
-                <Cpu className="w-6 h-6 text-tinno-green-600" />
+            <div className="bg-[#dbebff] p-4 rounded-lg">
+              <div className="flex items-center space-x-3">
+                <Cpu className="w-6 h-6 text-blue-600" />
                 <div>
                   <p className="text-xs text-gray-600">CPU Usage</p>
-                  <p className="text-base font-semibold text-gray-900">{summary.cpuUsage || 'N/A'}</p>
+                  <p className="text-lg font-semibold text-gray-900">{summary.cpuUsage || 'N/A'}</p>
                 </div>
               </div>
             </div>
-            <div className="bg-tinno-green-50 p-2 rounded">
-              <div className="flex items-center space-x-2">
-                <MemoryStick className="w-6 h-6 text-tinno-green-600" />
+            <div className="bg-[#dbebff] p-4 rounded-lg">
+              <div className="flex items-center space-x-3">
+                <MemoryStick className="w-6 h-6 text-blue-600" />
                 <div>
                   <p className="text-xs text-gray-600">Memory Usage</p>
-                  <p className="text-base font-semibold text-gray-900">{summary.memoryUsage || 'N/A'}</p>
+                  <p className="text-lg font-semibold text-gray-900">{summary.memoryUsage || 'N/A'}</p>
                 </div>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Device Information Cards */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-6">
-          {/* Basic Information */}
-          <div className="bg-white rounded-xl shadow-md p-4">
-            <h3 className="text-base font-semibold text-gray-800 mb-2 flex items-center">
-              <Globe className="w-4 h-4 mr-1 text-tinno-green-600" />
+        {/* Basic + Network Info */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="bg-white/90 backdrop-blur-sm rounded-xl shadow-md p-5">
+            <h3 className="text-base font-semibold text-gray-800 mb-3 flex items-center">
+              <Globe className="w-5 h-5 mr-2 text-blue-600" />
               Basic Information
             </h3>
-            <div className="space-y-2">
-              <div className="flex justify-between items-center py-1 border-b border-gray-100">
-                <span className="text-gray-600 text-sm font-medium">Device Name:</span>
-                <span className="text-gray-900 font-semibold text-sm">PON Gateway</span>
+            <div className="space-y-3 text-sm">
+              <div className="flex justify-between py-2 border-b border-blue-100">
+                <span className="text-gray-600">Device Name</span>
+                <span className="font-medium">PON Gateway</span>
               </div>
-              <div className="flex justify-between items-center py-1 border-b border-gray-100">
-                <span className="text-gray-600 text-sm font-medium">Model:</span>
-                <span className="text-gray-900 text-sm">B521FG</span>
+              <div className="flex justify-between py-2 border-b border-blue-100">
+                <span className="text-gray-600">Model</span>
+                <span className="font-medium">B521FG</span>
               </div>
-              <div className="flex justify-between items-center py-1 border-b border-gray-100">
-                <span className="text-gray-600 text-sm font-medium">Manufacturer:</span>
-                <span className="text-gray-900 text-sm">Tinno</span>
+              <div className="flex justify-between py-2 border-b border-blue-100">
+                <span className="text-gray-600">Manufacturer</span>
+                <span className="font-medium">NA</span>
               </div>
-              <div className="flex justify-between items-center py-1">
-                <span className="text-gray-600 text-sm font-medium">Firmware Version:</span>
-                <span className="text-gray-900 font-mono text-xs">{summary.firmwareVersion || 'N/A'}</span>
+              <div className="flex justify-between py-2">
+                <span className="text-gray-600">Firmware Version</span>
+                <span className="font-mono">{summary.firmwareVersion || 'N/A'}</span>
               </div>
             </div>
           </div>
 
-          {/* Network Information */}
-          <div className="bg-white rounded-xl shadow-md p-4">
-            <h3 className="text-base font-semibold text-gray-800 mb-2 flex items-center">
-              <Network className="w-4 h-4 mr-1 text-tinno-green-600" />
+          <div className="bg-white/90 backdrop-blur-sm rounded-xl shadow-md p-5">
+            <h3 className="text-base font-semibold text-gray-800 mb-3 flex items-center">
+              <Network className="w-5 h-5 mr-2 text-blue-600" />
               Network Information
             </h3>
-            <div className="space-y-2">
-              <div className="flex justify-between items-center py-1 border-b border-gray-100">
-                <span className="text-gray-600 text-sm font-medium">IP Address:</span>
-                <span className="text-gray-900 font-mono text-sm">{summary.ipAddress || 'N/A'}</span>
+            <div className="space-y-3 text-sm">
+              <div className="flex justify-between py-2 border-b border-blue-100">
+                <span className="text-gray-600">IP Address</span>
+                <span className="font-mono">{summary.ipAddress || 'N/A'}</span>
               </div>
-              <div className="flex justify-between items-center py-1 border-b border-gray-100">
-                <span className="text-gray-600 text-sm font-medium">MAC Address:</span>
-                <span className="text-gray-900 font-mono text-xs">{summary.macAddress || 'N/A'}</span>
+              <div className="flex justify-between py-2 border-b border-blue-100">
+                <span className="text-gray-600">MAC Address</span>
+                <span className="font-mono">{summary.macAddress || 'N/A'}</span>
               </div>
-              <div className="flex justify-between items-center py-1 border-b border-gray-100">
-                <span className="text-gray-600 text-sm font-medium">Gateway:</span>
-                <span className="text-gray-900 font-mono text-sm">{summary.defaultGateway || 'N/A'}</span>
+              <div className="flex justify-between py-2 border-b border-blue-100">
+                <span className="text-gray-600">Gateway</span>
+                <span className="font-mono">{summary.defaultGateway || 'N/A'}</span>
               </div>
-              <div className="flex justify-between items-center py-1">
-                <span className="text-gray-600 text-sm font-medium">DNS Servers:</span>
-                <span className="text-gray-900 font-mono text-xs">{summary.dnsServers || 'N/A'}</span>
+              <div className="flex justify-between py-2">
+                <span className="text-gray-600">DNS Servers</span>
+                <span className="font-mono">{summary.dnsServers || 'N/A'}</span>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Reboot Information Card */}
-        <div className="bg-white rounded-xl shadow-md p-4 mt-6">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="text-lg font-semibold text-gray-800 flex items-center">
-              <Power className="w-5 h-5 mr-1 text-tinno-green-600" />
-              Events Information
-            </h3>
-          </div>
+        {/* Events */}
+        <div className="bg-white/90 backdrop-blur-sm rounded-xl shadow-md p-5">
+          <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
+            <Power className="w-5 h-5 mr-2 text-blue-600" />
+            Events Information
+          </h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="bg-tinno-green-50 p-3 rounded-lg">
-              <div className="flex items-center space-x-2">
-                <Clock className="w-6 h-6 text-tinno-green-600" />
+            <div className="bg-[#dbebff] p-4 rounded-lg">
+              <div className="flex items-center space-x-3">
+                <Clock className="w-6 h-6 text-blue-600" />
                 <div>
                   <p className="text-xs text-gray-600">Last Event Time</p>
-                  <p className="text-base font-semibold text-gray-900">{selfheal.lastRebootTime}</p>
+                  <p className="font-semibold">{selfheal.lastRebootTime}</p>
                 </div>
               </div>
             </div>
-            <div className="bg-tinno-green-50 p-3 rounded-lg">
-              <div className="flex items-center space-x-2">
-                <AlertCircle className="w-6 h-6 text-tinno-green-600" />
+            <div className="bg-[#dbebff] p-4 rounded-lg">
+              <div className="flex items-center space-x-3">
+                <AlertCircle className="w-6 h-6 text-blue-600" />
                 <div>
                   <p className="text-xs text-gray-600">Last Event Reason</p>
-                  <p className="text-base font-semibold text-gray-900">{selfheal.lastRebootReason}</p>
+                  <p className="font-semibold">{selfheal.lastRebootReason}</p>
                 </div>
               </div>
             </div>
-            <div className="bg-tinno-green-50 p-3 rounded-lg">
-              <div className="flex items-center space-x-2">
-                <RefreshCw className="w-6 h-6 text-tinno-green-600" />
+            <div className="bg-[#dbebff] p-4 rounded-lg">
+              <div className="flex items-center space-x-3">
+                <RefreshCw className="w-6 h-6 text-blue-600" />
                 <div>
                   <p className="text-xs text-gray-600">Number of Events</p>
-                  <p className="text-base font-semibold text-gray-900">{selfheal.rebootCount}</p>
+                  <p className="font-semibold">{selfheal.rebootCount}</p>
                 </div>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Graphs Section */}
-        <div className="grid grid-cols-1 mt-4 lg:grid-cols-2 gap-6">
-          {/* CPU Graph */}
-          <div className="bg-white rounded-xl shadow-md p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-xl font-bold text-gray-800 flex items-center">
-                <Cpu className="w-6 h-6 mr-2 text-tinno-green-600" />
-                CPU Usage Graph
-              </h3>
-            </div>
+        {/* Charts */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="bg-white/90 backdrop-blur-sm rounded-xl shadow-md p-6">
+            <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center">
+              <Cpu className="w-6 h-6 mr-2 text-blue-600" />
+              CPU Usage
+            </h3>
             <div className="h-80">
-              <Line data={cpuData} options={chartOptions} ref={cpuChartRef} />
+              <Line data={cpuData} options={baseChartOptions} ref={cpuChartRef} />
             </div>
           </div>
 
-          {/* Memory Graph */}
-          <div className="bg-white rounded-xl shadow-md p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-xl font-bold text-gray-800 flex items-center">
-                <MemoryStick className="w-6 h-6 mr-2 text-tinno-green-600" />
-                Memory Usage Graph
-              </h3>
-            </div>
+          <div className="bg-white/90 backdrop-blur-sm rounded-xl shadow-md p-6">
+            <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center">
+              <MemoryStick className="w-6 h-6 mr-2 text-blue-600" />
+              Memory Usage
+            </h3>
             <div className="h-80">
-              <Line data={memoryData} options={chartOptions} ref={memoryChartRef} />
+              <Line data={memoryData} options={baseChartOptions} ref={memoryChartRef} />
             </div>
           </div>
 
-          {/* Temperature Graph - centered in the grid */}
           <div className="lg:col-span-2 flex justify-center">
-            <div className="bg-white rounded-xl shadow-md p-6 w-full lg:w-1/2">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-xl font-bold text-gray-800 flex items-center">
-                  <Thermometer className="w-6 h-6 mr-2 text-tinno-green-600" />
-                  Temperature Graph
-                </h3>
-              </div>
+            <div className="bg-white/90 backdrop-blur-sm rounded-xl shadow-md p-6 w-full max-w-3xl">
+              <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center">
+                <Thermometer className="w-6 h-6 mr-2 text-violet-600" />
+                Temperature
+              </h3>
               <div className="h-80">
                 <Line data={tempData} options={tempChartOptions} ref={tempChartRef} />
               </div>
             </div>
           </div>
         </div>
+
       </div>
     </div>
   );

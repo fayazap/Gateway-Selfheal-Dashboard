@@ -9,8 +9,8 @@ function AboutPage() {
   ];
 
   return (
-    <div className="p-6 bg-white rounded-lg shadow-md text-gray-700 space-y-6">
-      <h2 className="text-2xl font-bold text-tinno-green-600">About Self-Healing</h2>
+    <div className="p-6 bg-[#e4ebf9] rounded-lg shadow-md text-gray-700 space-y-6">
+      <h2 className="text-2xl font-bold text-[#3845a0]">About Self-Healing</h2>
       <p className="text-gray-600">
         Our intelligent self-healing system ensures uninterrupted broadband connectivity through proactive monitoring and automated recovery actions:
       </p>
