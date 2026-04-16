@@ -13,7 +13,7 @@ app.use(bodyParser.json());
 // SSH config using environment variables
 const sshConfig = {
   host: process.env.SSH_HOST || '192.168.246.151',
-  port: 22,
+  port: 2266,
   username: process.env.SSH_USERNAME || 'root',
   password: process.env.SSH_PASSWORD || 'root'
 };
