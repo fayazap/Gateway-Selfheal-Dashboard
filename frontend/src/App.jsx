@@ -1,21 +1,39 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, NavLink, useNavigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Tooltip } from 'react-tooltip';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import 'react-tooltip/dist/react-tooltip.css';
-import { Sidebar, Menu, MenuItem } from 'react-pro-sidebar';
-import { Home, Settings, Info, BarChart, Server, LogOut } from 'lucide-react';
+import 'primereact/resources/themes/lara-light-green/theme.css';
+import 'primereact/resources/primereact.css';
+import { Sidebar, Menu, MenuItem, SubMenu } from 'react-pro-sidebar';
+import { Home, Settings, Info, BarChart, Server, LogOut, Activity, Wifi } from 'lucide-react';
 import SummaryPage from './pages/SummaryPage.jsx';
 import DisplayConfigurePage from './pages/DisplayConfigurePage.jsx';
 import AboutPage from './pages/AboutPage.jsx';
 import LCMPage from './pages/LCMPage.jsx';
 import LoginPage from './pages/LoginPage.jsx';
+import WifiChannelAnalyzerPage from './pages/WifiChannelAnalyzerPage.jsx';
+import AnomalyDetectionDashboard from './pages/AnomalyDetectionDashboard.jsx';
+import SmartBandwidthAllocator from './pages/SmartBandwidthAllocator.jsx';
+
+const WaveIcon = ({ size = 20, color = "currentColor" }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+  </svg>
+);
+
+const Shield = ({ size = 18, color = "currentColor" }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+  </svg>
+);
 
 function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false); // Track login state
   const navigate = useNavigate();
+  const location = useLocation();
 
   useEffect(() => {
     // Check if already logged in (e.g., from localStorage or initial state)
@@ -88,6 +106,31 @@ function App() {
           >
             Services
           </MenuItem>
+          
+          <SubMenu
+            label="AI Services"
+            icon={<Activity size={20} />}
+          >
+            <MenuItem
+              component={<NavLink to="/wifi-channel-analyzer" />}
+              icon={<Wifi size={20} />}
+            >
+              Wifi Channel Analyzer
+            </MenuItem>
+            <MenuItem
+              component={<NavLink to="/anomaly-detection" />}
+              icon={<Shield size={20} />}
+            >
+              Anomaly Detection
+            </MenuItem>
+            <MenuItem
+              component={<NavLink to="/smart-bandwidth" />}
+              icon={<WaveIcon size={20} />}
+            >
+              Smart Bandwidth Allocator
+            </MenuItem>
+          </SubMenu>
+
           <MenuItem
             component={<NavLink to="/display-configure" />}
             icon={<Home size={20} />}
@@ -127,7 +170,7 @@ function App() {
                   Self-Healing Dashboard
                 </h1>
                 <p className="text-l font-bold text-white-300">
-                  Experience uninterrupted connectivity with intelligent self-healing
+                  Experience uninterrupted connectivity with intelligent self-healing system.
                 </p>
               </div>
             </div>
@@ -147,7 +190,7 @@ function App() {
 
         {/* Content */}
         <main className="p-6">
-          <AnimatePresence>
+          <AnimatePresence mode="wait">
             <motion.div
               key={location.pathname}
               initial={{ opacity: 0, y: 20 }}
@@ -155,11 +198,14 @@ function App() {
               exit={{ opacity: 0, y: -20 }}
               transition={{ duration: 0.3 }}
             >
-              <Routes>
+              <Routes location={location} key={location.pathname}>
                 <Route path="/" element={<SummaryPage />} />
                 <Route path="/display-configure" element={<DisplayConfigurePage />} />
                 <Route path="/about" element={<AboutPage />} />
                 <Route path="/lcm" element={<LCMPage />} />
+                <Route path="/wifi-channel-analyzer" element={<WifiChannelAnalyzerPage />} />
+                <Route path="/anomaly-detection" element={<AnomalyDetectionDashboard />} />
+                <Route path="/smart-bandwidth" element={<SmartBandwidthAllocator />} />
                 <Route path="/login" element={<LoginPage setIsLoggedIn={setIsLoggedIn} />} />
               </Routes>
             </motion.div>

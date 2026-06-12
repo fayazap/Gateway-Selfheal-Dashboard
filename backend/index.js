@@ -7,16 +7,24 @@ const fs = require('fs').promises;
 const app = express();
 const port = 5000;
 
+function resolveSshPort(host) {
+  return host === '192.168.1.1' ? 2266 : 2288;
+}
+
 app.use(cors());
 app.use(bodyParser.json());
 
 // SSH config using environment variables
 const sshConfig = {
-  host: process.env.SSH_HOST || '192.168.246.151',
-  port: 2266,
+  host: process.env.SSH_HOST || '192.168.246.154',
+  port: resolveSshPort(process.env.SSH_HOST || '192.168.246.154'),
   username: process.env.SSH_USERNAME || 'root',
   password: process.env.SSH_PASSWORD || 'root'
 };
+
+if (!sshConfig.host || !sshConfig.username || !sshConfig.password) {
+  console.warn('WARNING: SSH credentials (SSH_HOST, SSH_USERNAME, SSH_PASSWORD) are not fully provided. Connection may fail.');
+}
 
 // Helper to execute SSH command and return output
 function sshExec(command) {
@@ -148,6 +156,256 @@ app.get('/api/summary', async (req, res) => {
   }
 });
 
+// API: Fetch Anomaly Detection Live Data
+app.get('/api/anomaly-detection/live-data', async (req, res) => {
+  try {
+    const rawData = await sshExec(`
+      file="/lcm/anomaly_logs/data/raw/live_data.csv"
+      if [ -f "$file" ]; then
+        last_ts=$(awk -F, 'NF>1{ts=$1} END{print ts}' "$file")
+        if [ -n "$last_ts" ]; then
+          grep "^$last_ts" "$file" || echo ""
+        else
+          echo ""
+        fi
+      else
+        echo ""
+      fi
+    `);
+    res.send(rawData);
+  } catch (err) {
+    res.status(500).json({ error: `SSH error: ${err.message}` });
+  }
+});
+
+// API: Fetch Anomaly Detection Top Process Data
+app.get('/api/anomaly-detection/top-process', async (req, res) => {
+  try {
+    const rawData = await sshExec('cat /lcm/anomaly_logs/data/raw/top_process.csv || echo ""');
+    res.send(rawData);
+  } catch (err) {
+    res.status(500).json({ error: `SSH error: ${err.message}` });
+  }
+});
+
+// API: Fetch Anomaly Detection Alerts
+app.get('/api/anomaly-detection/alerts', async (req, res) => {
+  try {
+    const output = await sshExec('ubus-cli Device.AIServices.AnomalyDetection.Processed_data.? || echo ""');
+    res.send(output);
+  } catch (err) {
+    res.status(500).json({ error: `SSH error: ${err.message}` });
+  }
+});
+
+// API: Clear Anomaly Detection Alert By UBUS Instance Index
+app.post('/api/anomaly-detection/clear-alert', async (req, res) => {
+  const index = parseInt(req.body.index, 10);
+  if (Number.isNaN(index)) {
+    return res.status(400).json({ error: 'Missing or invalid alert index' });
+  }
+
+  try {
+    const payload = JSON.stringify({ rel_path: 'Processed_data.', index });
+    const output = await sshExec(`ubus call Device.AIServices.AnomalyDetection _del '${payload}'`);
+    res.json({ success: true, index, output });
+  } catch (err) {
+    res.status(500).json({ error: `SSH error: ${err.message}` });
+  }
+});
+
+// API: Fetch Anomaly Detection Status
+app.get('/api/anomaly-detection/status', async (req, res) => {
+  try {
+    const output = await sshExec('ubus-cli Device.AIServices.AnomalyDetection.Enable? || echo ""');
+    res.send(output);
+  } catch (err) {
+    res.status(500).json({ error: `SSH error: ${err.message}` });
+  }
+});
+
+// API: Fetch Wifi Channel Analyzer Status
+app.get('/api/wifi-channel-analyzer/status', async (req, res) => {
+  try {
+    const output = await sshExec('ubus-cli Device.AIServices.WifiChannelAnalyzer.Enable? || echo ""');
+    res.send(output);
+  } catch (err) {
+    res.status(500).json({ error: `SSH error: ${err.message}` });
+  }
+});
+
+// API: Set Wifi Channel Analyzer Status
+app.post('/api/wifi-channel-analyzer/status', async (req, res) => {
+  try {
+    const enable = req.body.enable ? 1 : 0;
+    await sshExec(`ubus-cli Device.AIServices.WifiChannelAnalyzer.Enable=${enable}`);
+    res.json({ success: true, enable });
+  } catch (err) {
+    res.status(500).json({ error: `SSH error: ${err.message}` });
+  }
+});
+
+// API: Kill Anomaly Process By PID
+app.post('/api/anomaly-detection/kill', async (req, res) => {
+  const { pid } = req.body;
+  if (!pid) return res.status(400).json({ error: 'Missing PID' });
+  try {
+    await sshExec(`kill -9 ${pid}`);
+    res.json({ success: true, pid });
+  } catch (err) {
+    res.status(500).json({ error: `SSH error: ${err.message}` });
+  }
+});
+
+// API: Set Anomaly Detection Status
+app.post('/api/anomaly-detection/status', async (req, res) => {
+  try {
+    const enable = req.body.enable ? 1 : 0;
+    await sshExec(`ubus-cli Device.AIServices.AnomalyDetection.Enable=${enable}`);
+    res.json({ success: true, enable });
+  } catch (err) {
+    res.status(500).json({ error: `SSH error: ${err.message}` });
+  }
+});
+
+// API: Fetch Anomaly Detection Config
+app.get('/api/anomaly-detection/config', async (req, res) => {
+  try {
+    const output = await sshExec('cat /etc/AI-agent/AnomalyDetection/python_scripts/config.py || echo ""');
+    res.send(output);
+  } catch (err) {
+    res.status(500).json({ error: `SSH error: ${err.message}` });
+  }
+});
+
+// API: Set Anomaly Detection Config
+app.post('/api/anomaly-detection/config', async (req, res) => {
+  const { config } = req.body;
+  if (!config) return res.status(400).json({ error: 'Missing config' });
+  try {
+    res.json({ success: true });
+    new Promise((resolve, reject) => {
+      const conn = new Client();
+      conn.on('ready', () => {
+        conn.exec('cat > /etc/AI-agent/AnomalyDetection/python_scripts/config.py', (err, stream) => {
+          if (err) {
+            conn.end();
+            return reject(err);
+          }
+          stream.write(config);
+          stream.end();
+          setTimeout(() => {
+            conn.end();
+            resolve();
+          }, 1000);
+        });
+      }).connect(sshConfig).on('error', reject);
+    }).catch(err => console.error('Background SSH Config Write Error:', err));
+  } catch (err) {
+    if (!res.headersSent) {
+      res.status(500).json({ error: `SSH error: ${err.message}` });
+    }
+  }
+});
+
+// API: Fetch Smart Bandwidth Allocator Status
+app.get('/api/smart-bandwidth/status', async (req, res) => {
+  try {
+    const output = await sshExec('ubus-cli Device.AIServices.BandwidthPrediction.Enable? || echo ""');
+    res.send(output);
+  } catch (err) {
+    res.status(500).json({ error: `SSH error: ${err.message}` });
+  }
+});
+
+// API: Fetch Smart Bandwidth Allocator Config
+app.get('/api/smart-bandwidth/config', async (req, res) => {
+  try {
+    const configData = await sshExec('cat /etc/AI-agent/BandwidthPrediction/python_scripts/config.py || echo ""');
+    res.send(configData);
+  } catch (err) {
+    res.status(500).json({ error: `SSH error: ${err.message}` });
+  }
+});
+
+// API: Set Smart Bandwidth Allocator Config
+app.post('/api/smart-bandwidth/config', async (req, res) => {
+  const { newConfigContent, config } = req.body;
+  const targetContent = newConfigContent || config;
+  if (!targetContent) return res.status(400).json({ error: 'Missing newConfigContent or config' });
+  try {
+    // Send success to frontend immediately so UI doesn't hang
+    res.json({ success: true });
+
+    // Perform SSH write in the background (fire-and-forget)
+    new Promise((resolve, reject) => {
+      const conn = new Client();
+      conn.on('ready', () => {
+        conn.exec('cat > /etc/AI-agent/BandwidthPrediction/python_scripts/config.py', (err, stream) => {
+          if (err) {
+            conn.end();
+            return reject(err);
+          }
+          stream.write(targetContent);
+          stream.end();
+          
+          // Force close connection after a short delay since 'cat' might hang waiting for EOF occasionally
+          setTimeout(() => {
+            conn.end();
+            resolve();
+          }, 1000);
+        });
+      }).connect(sshConfig).on('error', reject);
+    }).catch(err => console.error('Background SSH Config Write Error:', err));
+
+  } catch (err) {
+    if (!res.headersSent) {
+      res.status(500).json({ error: `SSH error: ${err.message}` });
+    }
+  }
+});
+
+// API: Set QoS Ubus Allocation
+app.post('/api/smart-bandwidth/qos-allocation', async (req, res) => {
+  const { shaperRate, queueRates } = req.body;
+  try {
+    if (shaperRate !== undefined) {
+      await sshExec(`ubus-cli QoS.Shaper.shaper-wan-download.ShapingRate=${shaperRate}`);
+    }
+    if (queueRates) {
+      if (queueRates.high !== undefined) await sshExec(`ubus-cli QoS.Queue.queue-high-download.ShapingRate=${queueRates.high}`);
+      if (queueRates.medium !== undefined) await sshExec(`ubus-cli QoS.Queue.queue-medium-download.ShapingRate=${queueRates.medium}`);
+      if (queueRates.normal !== undefined) await sshExec(`ubus-cli QoS.Queue.queue-normal-download.ShapingRate=${queueRates.normal}`);
+      if (queueRates.low !== undefined) await sshExec(`ubus-cli QoS.Queue.queue-low-download.ShapingRate=${queueRates.low}`);
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: `SSH error: ${err.message}` });
+  }
+});
+
+// API: Fetch QoS Ubus Metrics
+app.get('/api/smart-bandwidth/qos-allocation', async (req, res) => {
+  try {
+    const shaperData = await sshExec('ubus-cli QoS.Shaper.*.? || echo ""');
+    const queueData = await sshExec('ubus-cli QoS.Queue.*.? || echo ""');
+    res.json({ shaperData, queueData });
+  } catch (err) {
+    res.status(500).json({ error: `SSH error: ${err.message}` });
+  }
+});
+
+// API: Set Smart Bandwidth Allocator Status
+app.post('/api/smart-bandwidth/status', async (req, res) => {
+  try {
+    const enable = req.body.enable ? 1 : 0;
+    await sshExec(`ubus-cli Device.AIServices.BandwidthPrediction.Enable=${enable}`);
+    res.json({ success: true, enable });
+  } catch (err) {
+    res.status(500).json({ error: `SSH error: ${err.message}` });
+  }
+});
+
 // API: Fetch all selfheal params and reboots
 app.get('/api/selfheal', async (req, res) => {
   try {
@@ -180,6 +438,29 @@ app.get('/api/selfheal', async (req, res) => {
       avgMemoryThreshold,
       avgTemperatureThreshold,
     });
+  } catch (err) {
+    res.status(500).json({ error: `SSH error: ${err.message}` });
+  }
+});
+
+// API: Fetch channel analyzer logs
+app.get('/api/channel_analyzer_logs/:filename', async (req, res) => {
+  const { filename } = req.params;
+  const validFiles = ['congestion_log.json', 'best_channel.json', 'predicted_log.json'];
+  
+  if (!validFiles.includes(filename)) {
+    return res.status(400).json({ error: 'Invalid log file requested' });
+  }
+
+  try {
+    const fileContent = await sshExec(`cat /lcm/channel_analyzer_logs/${filename}`);
+    
+    // Check if the command returned a standard cat error (e.g. "cat: can't open..." or "No such file")
+    if (!fileContent || fileContent.trim().startsWith('cat:')) {
+      return res.status(404).json({ error: 'Log file not found on gateway' });
+    }
+    
+    res.type('json').send(fileContent);
   } catch (err) {
     res.status(500).json({ error: `SSH error: ${err.message}` });
   }
@@ -529,7 +810,7 @@ app.post('/api/test-connection', async (req, res) => {
   const { host } = req.body;
   if (!host) return res.status(400).json({ error: 'Host is required' });
 
-  const tempConfig = { ...sshConfig, host };
+  const tempConfig = { ...sshConfig, host, port: resolveSshPort(host) };
   const conn = new Client();
   return new Promise((resolve, reject) => {
     conn.on('ready', () => {
@@ -547,8 +828,230 @@ app.post('/api/update-ssh-host', async (req, res) => {
   if (!host) return res.status(400).json({ error: 'Host is required' });
 
   sshConfig.host = host;
+  sshConfig.port = resolveSshPort(host);
   console.log(`Updated SSH host to: ${host}`);
   res.json({ success: true, message: 'SSH host updated' });
+});
+
+// === SMART BANDWIDTH ALLOCATOR ENDPOINTS ===
+
+// API: Fetch Smart Bandwidth live traffic log
+app.get('/api/smart-bandwidth/traffic', async (req, res) => {
+  try {
+    const rawData = await sshExec('cat /etc/AI-agent/BandwidthPrediction/logs/accumulated_log.log || echo ""');
+    res.send(rawData);
+  } catch (err) {
+    res.status(500).json({ error: `SSH error: ${err.message}` });
+  }
+});
+
+// API: Fetch Smart Bandwidth QoS hourly configs
+app.get('/api/smart-bandwidth/qos-config', async (req, res) => {
+  try {
+    const rawData = await sshExec('cat /etc/AI-agent/BandwidthPrediction/ndpi_configurations || echo ""');
+    res.send(rawData);
+  } catch (err) {
+    res.status(500).json({ error: `SSH error: ${err.message}` });
+  }
+});
+
+// API: Fetch Python Config to extract Priority Arrays if needed
+app.get('/api/smart-bandwidth/python-config', async (req, res) => {
+  try {
+    const rawData = await sshExec('cat /etc/AI-agent/BandwidthPrediction/python_scripts/config.py || echo ""');
+    res.send(rawData);
+  } catch (err) {
+    res.status(500).json({ error: `SSH error: ${err.message}` });
+  }
+});
+
+// API: Fetch QoS Classification entries
+app.get('/api/smart-bandwidth/qos-rules', async (req, res) => {
+  try {
+    const rawData = await sshExec('ubus-cli "Device.QoS.Classification.?" || echo ""');
+    res.send(rawData);
+  } catch (err) {
+    res.status(500).json({ error: `SSH error: ${err.message}` });
+  }
+});
+
+// API: Fetch QoS Classifications (Enabled + Postrouting only)
+app.get('/api/smart-bandwidth/qos-classifications', async (req, res) => {
+  try {
+    const statusRaw       = await sshExec('ubus-cli "QoS.Classification.*.Status?" || echo ""');
+    const directionRaw    = await sshExec('ubus-cli "QoS.Classification.*.X_PRPLWARE-COM_Direction?" || echo ""');
+    const destIpRaw       = await sshExec('ubus-cli "QoS.Classification.*.DestIP?" || echo ""');
+    const dpiProtoRaw     = await sshExec('ubus-cli "QoS.Classification.*.DpiProtocol?" || echo ""');
+    const trafficClassRaw = await sshExec('ubus-cli "QoS.Classification.*.TrafficClass?" || echo ""');
+    const hostsRaw        = await sshExec('ubus-cli Device.Hosts.Host.? || echo ""');
+
+    const parseClassField = (raw, fieldName) => {
+      const map = {};
+      // fieldName may contain hyphens (e.g. X_PRPLWARE-COM_Direction)
+      const escaped = fieldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const re = new RegExp(`QoS\\.Classification\\.(\\d+)\\.${escaped}\\s*=\\s*"?([^"\\n]*)"?`);
+      for (const line of raw.split('\n')) {
+        const m = line.match(re);
+        if (m) map[m[1]] = m[2].trim();
+      }
+      return map;
+    };
+
+    const statusMap       = parseClassField(statusRaw,       'Status');
+    const directionMap    = parseClassField(directionRaw,    'X_PRPLWARE-COM_Direction');
+    const destIpMap       = parseClassField(destIpRaw,       'DestIP');
+    const dpiProtoMap     = parseClassField(dpiProtoRaw,     'DpiProtocol');
+    const trafficClassMap = parseClassField(trafficClassRaw, 'TrafficClass');
+
+    // Build IP → device name map from Device.Hosts
+    const hostMap = {};
+    for (const line of hostsRaw.split('\n')) {
+      if (!line.includes('=') || line.startsWith('>')) continue;
+      const eqIdx = line.indexOf('=');
+      const key   = line.substring(0, eqIdx).trim();
+      const value = line.substring(eqIdx + 1).trim().replace(/^"|"$/g, '');
+      const parts = key.split('.');
+      if (parts.length >= 5 && parts[0] === 'Device' && parts[1] === 'Hosts' && parts[2] === 'Host') {
+        const id    = parts[3];
+        const field = parts[4];
+        if (!hostMap[id]) hostMap[id] = {};
+        hostMap[id][field] = value;
+      }
+    }
+    const ipToName = {};
+    for (const id in hostMap) {
+      const host = hostMap[id];
+      const ip   = (host.IPAddress || '').trim();
+      if (!ip) continue;
+      const name = (host.DeviceName || '').trim() || (host.HostName || '').trim() || ip;
+      ipToName[ip] = name;
+    }
+
+    // TrafficClass → queue: 5=Highest, 6=Moderate, 7=Default, 8=Low
+    const trafficClassToQueue = (tc) => {
+      const n = parseInt(tc, 10);
+      if (n === 5) return 'Highest Bandwidth Queue';
+      if (n === 6) return 'Moderate Bandwidth Queue';
+      if (n === 8) return 'Low Bandwidth Queue';
+      return 'Default Bandwidth Queue'; // 7 or anything unrecognised
+    };
+
+    const allIndices = new Set([...Object.keys(statusMap), ...Object.keys(directionMap)]);
+    const classifications = [];
+    for (const idx of allIndices) {
+      if (statusMap[idx]    !== 'Enabled')     continue;
+      if (directionMap[idx] !== 'Postrouting') continue;
+
+      const destIp      = destIpMap[idx]       || '';
+      const dpiProtocol = dpiProtoMap[idx]     || '';
+      const trafficClass = trafficClassMap[idx] || '';
+      const deviceName  = destIp ? (ipToName[destIp] || destIp) : '';
+
+      classifications.push({
+        index:       parseInt(idx, 10),
+        deviceName,
+        destIp,
+        dpiProtocol,
+        trafficClass,
+        queue: trafficClassToQueue(trafficClass),
+      });
+    }
+
+    classifications.sort((a, b) => a.index - b.index);
+    res.json({ classifications });
+  } catch (err) {
+    res.status(500).json({ error: `SSH error: ${err.message}` });
+  }
+});
+
+// API: Fetch Gateway UTC Time
+app.get('/api/smart-bandwidth/gateway-time', async (req, res) => {
+  try {
+    const rawData = await sshExec('date -u');
+    res.send(rawData);
+  } catch (err) {
+    res.status(500).json({ error: `SSH error: ${err.message}` });
+  }
+});
+
+// API: Fetch MAC to Hostname mapping
+app.get('/api/smart-bandwidth/clients', async (req, res) => {
+  try {
+    const rawData = await sshExec('ubus-cli Device.Hosts.Host.? || echo ""');
+    const lines = rawData.split('\n');
+    const hostMap = {};
+    const macToName = {};
+
+    for (let line of lines) {
+      if (line.includes('=')) {
+        const parts = line.split('=');
+        const key = parts[0].trim();
+        const value = parts.slice(1).join('=').trim().replace(/"/g, '');
+        
+        const keyParts = key.split('.');
+        if (keyParts.length >= 5 && keyParts[0] === 'Device' && keyParts[1] === 'Hosts' && keyParts[2] === 'Host') {
+           const id = keyParts[3];
+           const field = keyParts[4];
+           if (!hostMap[id]) hostMap[id] = {};
+           hostMap[id][field] = value;
+        }
+      }
+    }
+
+    for (const id in hostMap) {
+      const host = hostMap[id];
+      if (host.PhysAddress) {
+        const mac = host.PhysAddress.toLowerCase();
+        let name = host.DeviceName;
+        if (!name) name = host.HostName;
+        if (!name) name = mac;
+        macToName[mac] = name;
+      }
+    }
+    
+    res.json(macToName);
+  } catch (err) {
+    res.status(500).json({ error: `SSH error: ${err.message}` });
+  }
+});
+
+// API: Fetch active hosts from Device.Hosts (Active=1 only)
+app.get('/api/smart-bandwidth/active-hosts', async (req, res) => {
+  try {
+    const rawData = await sshExec('ubus-cli Device.Hosts.Host.? || echo ""');
+    const lines = rawData.split('\n');
+    const hostMap = {};
+
+    for (const line of lines) {
+      if (!line.includes('=') || line.startsWith('>')) continue;
+      const eqIdx = line.indexOf('=');
+      const key = line.substring(0, eqIdx).trim();
+      const value = line.substring(eqIdx + 1).trim().replace(/^"|"$/g, '');
+      const keyParts = key.split('.');
+      if (keyParts.length >= 5 && keyParts[0] === 'Device' && keyParts[1] === 'Hosts' && keyParts[2] === 'Host') {
+        const id = keyParts[3];
+        const field = keyParts[4];
+        if (!hostMap[id]) hostMap[id] = {};
+        hostMap[id][field] = value;
+      }
+    }
+
+    const activeHosts = [];
+    for (const id in hostMap) {
+      const host = hostMap[id];
+      if (host.Active !== '1' && host.Active !== 'true') continue;
+      const mac = (host.PhysAddress || '').toLowerCase();
+      const ip  = (host.IPAddress || '').trim();
+      let name = (host.DeviceName || '').trim();
+      if (!name) name = (host.HostName || '').trim();
+      if (!name) name = mac;
+      if (mac) activeHosts.push({ mac, name, ip });
+    }
+
+    res.json(activeHosts);
+  } catch (err) {
+    res.status(500).json({ error: `SSH error: ${err.message}` });
+  }
 });
 
 app.listen(port, () => {
