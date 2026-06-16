@@ -916,15 +916,23 @@ app.get('/api/smart-bandwidth/qos-classifications', async (req, res) => {
         const field = parts[4];
         if (!hostMap[id]) hostMap[id] = {};
         hostMap[id][field] = value;
+        // Capture Device.Hosts.Host.{id}.IPv4Address.{n}.IPAddress
+        if (parts.length === 7 && field === 'IPv4Address' && parts[6] === 'IPAddress' && value) {
+          if (!hostMap[id]['_ipv4']) hostMap[id]['_ipv4'] = value;
+        }
       }
     }
+    const isIPv4cls = (addr) => /^(\d{1,3}\.){3}\d{1,3}$/.test(addr);
     const ipToName = {};
     for (const id in hostMap) {
       const host = hostMap[id];
-      const ip   = (host.IPAddress || '').trim();
-      if (!ip) continue;
-      const name = (host.DeviceName || '').trim() || (host.HostName || '').trim() || ip;
-      ipToName[ip] = name;
+      const name = (host.DeviceName || '').trim() || (host.HostName || '').trim();
+      const rawIp = (host.IPAddress || '').trim();
+      const ipv4  = isIPv4cls(rawIp) ? rawIp : (host._ipv4 || '');
+      // Index by IPv4 so QoS DestIP lookups (which are always IPv4) resolve correctly
+      if (ipv4 && name) ipToName[ipv4] = name;
+      // Also index by raw IPAddress in case DestIP ever matches it
+      if (rawIp && name) ipToName[rawIp] = name;
     }
 
     // TrafficClass → queue: 5=Highest, 6=Moderate, 7=Default, 8=Low
@@ -1033,22 +1041,42 @@ app.get('/api/smart-bandwidth/active-hosts', async (req, res) => {
         const field = keyParts[4];
         if (!hostMap[id]) hostMap[id] = {};
         hostMap[id][field] = value;
+        // Capture Device.Hosts.Host.{id}.IPv4Address.{n}.IPAddress as IPv4 fallback
+        if (keyParts.length === 7 && field === 'IPv4Address' && keyParts[6] === 'IPAddress' && value) {
+          if (!hostMap[id]['_ipv4']) hostMap[id]['_ipv4'] = value;
+        }
+        // Capture Device.Hosts.Host.{id}.WANStats.BytesReceivedRate / BytesSentRate
+        if (keyParts.length === 6 && field === 'WANStats') {
+          const subField = keyParts[5];
+          if (subField === 'BytesReceivedRate' || subField === 'BytesSentRate') {
+            if (!hostMap[id]['_wanStats']) hostMap[id]['_wanStats'] = {};
+            hostMap[id]['_wanStats'][subField] = value;
+          }
+        }
       }
     }
+
+    const isIPv4 = (addr) => /^(\d{1,3}\.){3}\d{1,3}$/.test(addr);
 
     const activeHosts = [];
     for (const id in hostMap) {
       const host = hostMap[id];
       if (host.Active !== '1' && host.Active !== 'true') continue;
       const mac = (host.PhysAddress || '').toLowerCase();
-      const ip  = (host.IPAddress || '').trim();
+      const rawIp = (host.IPAddress || '').trim();
+      const ip = isIPv4(rawIp) ? rawIp : (host._ipv4 || rawIp);
       let name = (host.DeviceName || '').trim();
       if (!name) name = (host.HostName || '').trim();
       if (!name) name = mac;
-      if (mac) activeHosts.push({ mac, name, ip });
+      const wanStats = host._wanStats || {};
+      const rxRate = parseInt(wanStats.BytesReceivedRate || '0') || 0;
+      const txRate = parseInt(wanStats.BytesSentRate || '0') || 0;
+      if (mac) activeHosts.push({ mac, name, ip, rxRate, txRate });
     }
 
-    res.json(activeHosts);
+    const totalRxBytesPerSec = activeHosts.reduce((s, h) => s + h.rxRate, 0);
+    const totalTxBytesPerSec = activeHosts.reduce((s, h) => s + h.txRate, 0);
+    res.json({ hosts: activeHosts, totalRxBytesPerSec, totalTxBytesPerSec });
   } catch (err) {
     res.status(500).json({ error: `SSH error: ${err.message}` });
   }
