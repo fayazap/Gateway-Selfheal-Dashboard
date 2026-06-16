@@ -79,6 +79,8 @@ const PRIORITY_ORDER = {
 
 // ── Utility ─────────────────────────────────────────────────────
 
+const fmtMbps = (bytesPerSec) => (bytesPerSec * 8 / 1_000_000).toFixed(2);
+
 const fmtBytes = (b) => {
   if (!b || b === 0) return "-";
   if (b > 1_048_576) return `${(b / 1_048_576).toFixed(2)} MB`;
@@ -233,8 +235,17 @@ export default function SmartBandwidthAllocator() {
   const [editingCapacity, setEditingCapacity] = useState({ shaperRate: 0, high: 0, medium: 0, normal: 0, low: 0 });
   const [isSavingCapacity, setIsSavingCapacity] = useState(false);
 
+  const [showQosChartModal, setShowQosChartModal] = useState(false);
+  const [qosChartData, setQosChartData] = useState({});
+  const [isFetchingQosChart, setIsFetchingQosChart] = useState(false);
+  const [ndpiCurrentHour, setNdpiCurrentHour] = useState(null);
+  const [qosTooltip, setQosTooltip] = useState(null);
+  const [allocCardHovered, setAllocCardHovered] = useState(false);
+
   const [activeHosts, setActiveHosts] = useState([]);
   const [qosClassifications, setQosClassifications] = useState([]);
+  const [downloadRateMbps, setDownloadRateMbps] = useState(0);
+  const [uploadRateMbps, setUploadRateMbps] = useState(0);
 
   const isEditingApp = useRef(false);
   const isEditingThreshold = useRef(false);
@@ -266,7 +277,8 @@ export default function SmartBandwidthAllocator() {
           return; // Stop parsing data if disabled
         }
 
-        const trafficData = await fetchText(`${API_BASE}/smart-bandwidth/traffic`);
+        // const trafficData = await fetchText(`${API_BASE}/smart-bandwidth/traffic`); // Disabled - kept for future use
+        const trafficData = null;
         const timeData = await fetchText(`${API_BASE}/smart-bandwidth/gateway-time`);
         const qosMetrics = await fetchJson(`${API_BASE}/smart-bandwidth/qos-allocation`);
         const configText = await fetchText(`${API_BASE}/smart-bandwidth/config`);
@@ -961,6 +973,57 @@ export default function SmartBandwidthAllocator() {
     }));
   };
 
+  const parseNdpiConfig = (rawText) => {
+    const result = {};
+    if (!rawText || !rawText.trim()) return result;
+    let currentHour = null;
+    rawText.split('\n').forEach(line => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+      const hourMatch = trimmed.match(/^#Hour:(\d+)/);
+      if (hourMatch) {
+        currentHour = parseInt(hourMatch[1], 10);
+        result[currentHour] = [];
+        return;
+      }
+      if (currentHour !== null && !trimmed.startsWith('#')) {
+        const parts = trimmed.split(',').map(s => s.trim());
+        if (parts.length >= 3) {
+          result[currentHour].push({ name: parts[0], mac: parts[1], queue: parts[2] });
+        }
+      }
+    });
+    return result;
+  };
+
+  const openQosChart = async () => {
+    setShowQosChartModal(true);
+    setIsFetchingQosChart(true);
+    setQosTooltip(null);
+    try {
+      const [raw, timeRaw, clientsData] = await Promise.all([
+        fetch(`${API_BASE}/smart-bandwidth/qos-config`).then(r => r.text()).catch(() => ""),
+        fetch(`${API_BASE}/smart-bandwidth/gateway-time`).then(r => r.text()).catch(() => ""),
+        fetch(`${API_BASE}/smart-bandwidth/clients`).then(r => r.json()).catch(() => ({})),
+      ]);
+      if (clientsData && Object.keys(clientsData).length > 0) {
+        setMacToNameMap(clientsData);
+      }
+      setQosChartData(parseNdpiConfig(raw));
+      let hour = new Date().getUTCHours();
+      if (timeRaw) {
+        const m = timeRaw.match(/(\d{2}):(\d{2}):\d{2}/);
+        if (m) hour = parseInt(m[1], 10);
+      }
+      setNdpiCurrentHour(hour);
+    } catch {
+      setQosChartData({});
+      setNdpiCurrentHour(new Date().getUTCHours());
+    } finally {
+      setIsFetchingQosChart(false);
+    }
+  };
+
   // Poll active hosts every 3 seconds; notify when a client transitions to active
   useEffect(() => {
     if (!enabled) return;
@@ -969,10 +1032,13 @@ export default function SmartBandwidthAllocator() {
 
     const pollActiveHosts = async () => {
       try {
-        const hosts = await fetch(`${API_BASE}/smart-bandwidth/active-hosts`).then(r => r.json()).catch(() => []);
+        const data = await fetch(`${API_BASE}/smart-bandwidth/active-hosts`).then(r => r.json()).catch(() => ({ hosts: [], totalRxBytesPerSec: 0, totalTxBytesPerSec: 0 }));
+        const hosts = Array.isArray(data) ? data : (data.hosts || []);
         if (!isMounted || !Array.isArray(hosts)) return;
 
         setActiveHosts(hosts);
+        setDownloadRateMbps(parseFloat(((data.totalRxBytesPerSec || 0) * 8 / 1_000_000).toFixed(2)));
+        setUploadRateMbps(parseFloat(((data.totalTxBytesPerSec || 0) * 8 / 1_000_000).toFixed(2)));
 
         const currentMacs = new Set(hosts.map(h => h.mac));
 
@@ -1008,8 +1074,14 @@ export default function SmartBandwidthAllocator() {
     };
   }, [API_BASE, enabled]);
 
-  const activeData = allTrafficData[latestBlockTs] || { traffic: [], timeStr: "" };
-  const liveTraffic = activeData.traffic || [];
+  // Traffic data disabled - kept for future use
+  // const activeData = allTrafficData[latestBlockTs] || { traffic: [], timeStr: "" };
+  // const liveTraffic = activeData.traffic || [];
+  // const allConfiguredProtos = [...PROTO_HIGH, ...PROTO_MEDIUM, ...PROTO_NORMAL, ...PROTO_LOW].map(p => (p || "").toLowerCase());
+  // const filteredTraffic = liveTraffic.filter(r => allConfiguredProtos.includes((r.proto || "").toLowerCase()));
+  // const uniqueProtosCount = [...new Set(filteredTraffic.map(r => r.proto))].length;
+  // const totalRx = filteredTraffic.reduce((s, r) => s + r.rx, 0);
+  // const totalTx = filteredTraffic.reduce((s, r) => s + r.tx, 0);
 
   // These are now empty refs populated dynamically during fetch so UI builds cleanly
   const PROTO_TIERS = [
@@ -1018,15 +1090,6 @@ export default function SmartBandwidthAllocator() {
     { tier:"Normal Priority", color:INFO,    protos:PROTO_NORMAL },
     { tier:"Low Priority",    color:MUTED,   protos:PROTO_LOW },
   ];
-
-  const allConfiguredProtos = [...PROTO_HIGH, ...PROTO_MEDIUM, ...PROTO_NORMAL, ...PROTO_LOW].map(p => (p || "").toLowerCase());
-  const filteredTraffic = liveTraffic.filter(r => allConfiguredProtos.includes((r.proto || "").toLowerCase()));
-
-  // Applications Monitored will be the Count of Variety of Apps in Client Traffic
-  const uniqueProtosCount = [...new Set(filteredTraffic.map(r => r.proto))].length;
-
-  const totalRx = filteredTraffic.reduce((s, r) => s + r.rx, 0);
-  const totalTx = filteredTraffic.reduce((s, r) => s + r.tx, 0);
 
   // Pipeline: only show active devices (IP must be in activeHosts)
   const _activeIPs = new Set(activeHosts.map(h => h.ip).filter(Boolean));
@@ -1038,16 +1101,28 @@ export default function SmartBandwidthAllocator() {
     "Default Bandwidth Queue": [],
     "Low Bandwidth Queue": [],
   };
+  const _pipeQueueOrder = { "Highest Bandwidth Queue":1, "Moderate Bandwidth Queue":2, "Default Bandwidth Queue":3, "Low Bandwidth Queue":4 };
+  const _sortIP = (ip) => (ip || "").split(".").map(n => parseInt(n, 10) || 0);
+  const _cmpIP = (a, b) => { const pa = _sortIP(a), pb = _sortIP(b); for (let i = 0; i < 4; i++) if (pa[i] !== pb[i]) return pa[i] - pb[i]; return 0; };
+
   const _qdMap = {};
   activeQosForPipeline.forEach(cls => {
     const queue = cls.queue || "Default Bandwidth Queue";
-    const device = cls.deviceName || cls.destIp || "Unknown";
+    const device = cls.deviceName || "Unknown";
     const key = `${queue}|||${device}`;
     if (!_qdMap[key]) {
-      _qdMap[key] = { device, queue, apps: [] };
+      _qdMap[key] = { device, ip: cls.destIp || "", queue, apps: [] };
       if (pipelineDeviceApps[queue]) pipelineDeviceApps[queue].push(_qdMap[key]);
     }
     if (cls.dpiProtocol) _qdMap[key].apps.push(cls.dpiProtocol);
+  });
+
+  // Sort each device's apps by queue priority (Highest → Low), then sort devices by IP
+  Object.keys(pipelineDeviceApps).forEach(tier => {
+    pipelineDeviceApps[tier].forEach(item => {
+      item.apps.sort((a, b) => (_pipeQueueOrder[a] || 99) - (_pipeQueueOrder[b] || 99));
+    });
+    pipelineDeviceApps[tier].sort((a, b) => _cmpIP(a.ip, b.ip));
   });
 
   // Guest hosts: active but no QoS classification → Default queue (no app chain)
@@ -1057,11 +1132,26 @@ export default function SmartBandwidthAllocator() {
     if (host.ip && _managedIPs.has(host.ip)) return;
     if (!host.name || _seenGuests.has(host.name)) return;
     _seenGuests.add(host.name);
-    pipelineDeviceApps["Default Bandwidth Queue"].push({ device: host.name, apps: [], isGuest: true });
+    pipelineDeviceApps["Default Bandwidth Queue"].push({ device: host.name, ip: host.ip || "", apps: [], isGuest: true });
   });
+
+  // Re-sort Default queue after guests are added (guests have IPs too)
+  pipelineDeviceApps["Default Bandwidth Queue"].sort((a, b) => _cmpIP(a.ip, b.ip));
 
   const pipelineQueues = capacityInfo.map(c => ({ ...c, items: pipelineDeviceApps[c.tier] || [] }));
   const maxPipelineMbps = Math.max(...capacityInfo.map(c => c.mbps), 1);
+
+  const activeAllocationsClassified = activeQosForPipeline.length;
+  const activeAllocationsGuests = _seenGuests.size;
+  const activeAllocationsTotal = activeAllocationsClassified + activeAllocationsGuests;
+
+  // Build name/IP → rate lookup from activeHosts (rates in bytes/sec)
+  const hostRateByKey = {};
+  activeHosts.forEach(h => {
+    const rates = { rx: h.rxRate || 0, tx: h.txRate || 0 };
+    if (h.name) hostRateByKey[h.name] = rates;
+    if (h.ip)   hostRateByKey[h.ip]   = rates;
+  });
 
   return (
     <div style={{ fontFamily:"system-ui,-apple-system,sans-serif", background:"#f8fafc", minHeight:"100vh" }}>
@@ -1169,25 +1259,52 @@ export default function SmartBandwidthAllocator() {
         {/* ── Stat Cards ── */}
         <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:12, marginBottom:16 }}>
           {[
-            { label:"Clients Connected",     value:activeHosts.length,     accent:PRIMARY  },
-            { label:"Applications Monitored",  value:uniqueProtosCount,       accent:"#111827"},
-            { label:"Total Download",     value:fmtBytes(totalRx), accent:WARNING  },
-            { label:"Total Upload", value:fmtBytes(totalTx), accent:INFO  },
+            { label:"Clients Connected",    value:activeHosts.length,         accent:PRIMARY   },
+            { label:"Predicted Active Allocations",   value:activeAllocationsTotal, tip:`${activeAllocationsClassified} Predicted · ${activeAllocationsGuests} Guests`, accent:"#111827" },
+            { label:"Download Rate", value:`${downloadRateMbps.toFixed(2)} Mbps`, accent:WARNING  },
+            { label:"Upload Rate",   value:`${uploadRateMbps.toFixed(2)} Mbps`,   accent:INFO     },
           ].map((s, i) => (
-            <div key={i} style={{ background:"#fff", borderRadius:10, padding:"14px 16px",
-              border:"1px solid #e5e7eb" }}>
+            <div key={i}
+              style={{ background:"#fff", borderRadius:10, padding:"14px 16px",
+                border:"1px solid #e5e7eb", position:"relative",
+                cursor: s.tip ? "default" : undefined }}
+              onMouseEnter={() => s.tip && setAllocCardHovered(true)}
+              onMouseLeave={() => setAllocCardHovered(false)}
+            >
               <div style={{ fontSize:12, color:MUTED, marginBottom:6, textTransform:"uppercase",
                 letterSpacing:"0.04em" }}>{s.label}</div>
               <div style={{ fontSize:30, fontWeight:700, color:s.accent, lineHeight:1, marginBottom:4 }}>
                 {s.value}
               </div>
-              <div style={{ fontSize:11, color:"#9ca3af" }}>{s.sub}</div>
+              {s.tip && allocCardHovered && (
+                <div style={{
+                  position:"absolute", bottom:"calc(100% + 6px)", left:"50%",
+                  transform:"translateX(-50%)",
+                  background:"rgba(255,255,255,0.82)",
+                  backdropFilter:"blur(10px)",
+                  WebkitBackdropFilter:"blur(10px)",
+                  color:"#374151", borderRadius:6,
+                  padding:"5px 10px", fontSize:12, fontWeight:500,
+                  whiteSpace:"nowrap", zIndex:20,
+                  border:"1px solid rgba(0,0,0,0.08)",
+                  boxShadow:"0 4px 14px rgba(0,0,0,0.12)",
+                  pointerEvents:"none",
+                }}>
+                  {s.tip}
+                  <div style={{
+                    position:"absolute", top:"100%", left:"50%", transform:"translateX(-50%)",
+                    width:0, height:0,
+                    borderLeft:"5px solid transparent", borderRight:"5px solid transparent",
+                    borderTop:"5px solid rgba(255,255,255,0.82)",
+                  }} />
+                </div>
+              )}
             </div>
           ))}
         </div>
 
         {/* ── Main Grid ── */}
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 350px", gap:16, marginBottom:16 }}>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 380px", gap:16, marginBottom:16 }}>
 
           {/* Left Column Wrapper */}
           <div style={{ display:"flex", flexDirection:"column", minWidth:0 }}>
@@ -1202,14 +1319,13 @@ export default function SmartBandwidthAllocator() {
               <div style={{ overflowY:"auto", flex: 1 }}>
                 <table style={{ width:"100%", borderCollapse:"collapse", fontSize:14, tableLayout:"fixed" }}>
                   <colgroup>
-                    <col style={{ width:"30%" }} />
-                    <col style={{ width:"15%" }} />
+                    <col style={{ width:"42%" }} />
                     <col style={{ width:"25%" }} />
-                    <col style={{ width:"30%" }} />
+                    <col style={{ width:"33%" }} />
                   </colgroup>
                   <thead>
                     <tr style={{ background:"#f9fafb", borderBottom:"1px solid #e5e7eb" }}>
-                      {["Client","IP","Applications","Queue"].map(h => (
+                      {["Client","Applications","Queue"].map(h => (
                         <th key={h} style={{ padding:"9px 10px", textAlign:"left",
                           fontWeight:600, color:MUTED, fontSize:14, letterSpacing:"0.05em" }}>{h}</th>
                       ))}
@@ -1225,10 +1341,24 @@ export default function SmartBandwidthAllocator() {
                       const managedIPs = new Set(activeClassifications.map(c => c.destIp).filter(Boolean));
                       const guestHosts = activeHosts.filter(h => !h.ip || !managedIPs.has(h.ip));
 
+                      const QUEUE_ORDER = {
+                        "Highest Bandwidth Queue": 1,
+                        "Moderate Bandwidth Queue": 2,
+                        "Default Bandwidth Queue": 3,
+                        "Low Bandwidth Queue": 4,
+                      };
+
+                      const sortIP = (ip) => (ip || "").split(".").map(n => parseInt(n, 10) || 0);
+                      const cmpIP = (a, b) => {
+                        const pa = sortIP(a), pb = sortIP(b);
+                        for (let i = 0; i < 4; i++) if (pa[i] !== pb[i]) return pa[i] - pb[i];
+                        return 0;
+                      };
+
                       // Group by device
                       const deviceGroupMap = {};
                       activeClassifications.forEach(cls => {
-                        const device = cls.deviceName || cls.destIp || "Unknown";
+                        const device = cls.deviceName || "Unknown";
                         if (!deviceGroupMap[device]) {
                           deviceGroupMap[device] = { device, ip: cls.destIp || "", entries: [] };
                         }
@@ -1237,12 +1367,19 @@ export default function SmartBandwidthAllocator() {
                           queue: cls.queue || "Default Bandwidth Queue"
                         });
                       });
-                      const groups = Object.values(deviceGroupMap);
+
+                      // Sort each device's apps by queue priority (High → Low)
+                      Object.values(deviceGroupMap).forEach(g => {
+                        g.entries.sort((a, b) => (QUEUE_ORDER[a.queue] || 99) - (QUEUE_ORDER[b.queue] || 99));
+                      });
+
+                      // Sort groups by IP numerically
+                      const groups = Object.values(deviceGroupMap).sort((a, b) => cmpIP(a.ip, b.ip));
 
                       if (groups.length === 0 && guestHosts.length === 0) {
                         return (
                           <tr>
-                            <td colSpan={4} style={{ padding:"40px 0", textAlign:"center", color:MUTED, fontSize:14 }}>
+                            <td colSpan={3} style={{ padding:"40px 0", textAlign:"center", color:MUTED, fontSize:14 }}>
                               No QoS Allocations Configured !
                             </td>
                           </tr>
@@ -1259,20 +1396,17 @@ export default function SmartBandwidthAllocator() {
                                   style={{ borderBottom: i === entries.length - 1 ? "1.5px solid #e5e7eb" : "1px solid #f9fafb" }}>
                                   {i === 0 && (
                                     <td rowSpan={entries.length} style={{
-                                      padding:"9px 10px", fontSize:16,
+                                      padding:"9px 10px", fontSize:17,
                                       color:"#111827", fontWeight:600, verticalAlign:"middle",
-                                      borderRight:"1px solid #f3f4f6"
+                                      borderRight:"1px solid #f3f4f6",
                                     }}>
-                                      {device}
-                                    </td>
-                                  )}
-                                  {i === 0 && (
-                                    <td rowSpan={entries.length} style={{
-                                      padding:"9px 10px", fontSize:14,
-                                      color:"#111827", fontWeight:500, verticalAlign:"middle",
-                                      borderRight:"1px solid #f3f4f6"
-                                    }}>
-                                      {ip}
+                                      <div>{device}</div>
+                                      {(() => { const r = hostRateByKey[device] || hostRateByKey[ip] || { rx:0, tx:0 }; return (
+                                        <div style={{ display:"flex", gap:8, marginTop:3 }}>
+                                          <span style={{ fontSize:12, fontWeight:500 }}>(↑ {fmtMbps(r.tx)} Mb/s</span>
+                                          <span style={{ fontSize:12, fontWeight:500 }}>↓ {fmtMbps(r.rx)} Mb/s)</span>
+                                        </div>
+                                      ); })()}
                                     </td>
                                   )}
                                   <td style={{ padding:"9px 10px" }}>
@@ -1296,13 +1430,15 @@ export default function SmartBandwidthAllocator() {
                             const guestPs = QUEUE_PS["Default Bandwidth Queue"];
                             return (
                               <tr key={`guest-${i}`} style={{ borderBottom:"1px solid #f9fafb" }}>
-                                <td style={{ padding:"9px 10px", fontSize:16,
+                                <td style={{ padding:"9px 10px", fontSize:17,
                                   color:"#111827", fontWeight:600, borderRight:"1px solid #f3f4f6" }}>
-                                  {host.name} <span style={{ fontSize:13, color:"#6b7280", marginLeft:6 }}>(Guest)</span>
-                                </td>
-                                <td style={{ padding:"9px 10px", fontSize:14,
-                                  color:"#111827", fontWeight:500, borderRight:"1px solid #f3f4f6", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
-                                  {host.ip || "-"}
+                                  <div>{host.name} <span style={{ fontSize:13, color:"#6b7280", marginLeft:6 }}>(Guest)</span></div>
+                                  {(() => { const r = hostRateByKey[host.name] || hostRateByKey[host.ip] || { rx:0, tx:0 }; return (
+                                    <div style={{ display:"flex", gap:8, marginTop:3 }}>
+                                      <span style={{ fontSize:12, fontWeight:500 }}>(↑ {fmtMbps(r.tx)} Mb/s</span>
+                                      <span style={{ fontSize:12, fontWeight:500 }}>↓ {fmtMbps(r.rx)} Mb/s)</span>
+                                    </div>
+                                  ); })()}
                                 </td>
                                 <td style={{ padding:"9px 10px" }}>
                                   <span style={{ fontSize:14, fontWeight:600, padding:"2px 8px",
@@ -1427,8 +1563,40 @@ export default function SmartBandwidthAllocator() {
             </div> */}
 
 
+            {/* Hourly Queue Configuration */}
+            <div style={{ background:"#fff", borderRadius:10, border:"1px solid #e5e7eb", padding:"13px 16px" }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                <div>
+                  <div style={{ fontWeight:600, fontSize:15, color:"#111827" }}>Queue Timeline</div>
+                  <div style={{ fontSize:11, color:MUTED, marginTop:2 }}>±2 Hour Bandwidth Configurations</div>
+                </div>
+                <button
+                  onClick={openQosChart}
+                  style={{
+                    padding:"4px 10px", fontSize:12, fontWeight:500, borderRadius:4,
+                    border:"1px solid #e5e7eb", background:"#fff", color:PRIMARY, cursor:"pointer"
+                  }}
+                >
+                  View Chart
+                </button>
+              </div>
+              <div style={{ display:"flex", gap:10, marginTop:10, flexWrap:"wrap" }}>
+                {[
+                  { label:"High",     color:DANGER  },
+                  { label:"Moderate", color:WARNING },
+                  { label:"Default",  color:INFO    },
+                  { label:"Low",      color:MUTED   },
+                ].map(q => (
+                  <div key={q.label} style={{ display:"flex", alignItems:"center", gap:4, fontSize:11 }}>
+                    <div style={{ width:8, height:8, borderRadius:2, background:q.color }} />
+                    <span style={{ color:"#6b7280" }}>{q.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             {/* App Config (protocol tier configuration) */}
-            <div style={{ background:"#fff", borderRadius:10, border:"1px solid #e5e7eb", overflow:"hidden", height:270, display:"flex", flexDirection:"column" }}>
+            <div style={{ background:"#fff", borderRadius:10, border:"1px solid #e5e7eb", overflow:"hidden", height:200, display:"flex", flexDirection:"column" }}>
               <div style={{ padding:"13px 16px", borderBottom:"1px solid #e5e7eb",
                 display:"flex", justifyContent:"space-between", alignItems:"center" }}>
                 <div style={{ fontWeight:600, fontSize:15, color:"#111827" }}>App Config</div>
@@ -1555,7 +1723,7 @@ export default function SmartBandwidthAllocator() {
           <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
             {pipelineQueues.map((pipe, qi) => {
               const widthPct  = Math.max(pipe.mbps > 0 ? Math.round((pipe.mbps / maxPipelineMbps) * 100) : 12, 12);
-              const heightPx  = Math.max(90, 72 + widthPct * 0.7);
+              const heightPx  = Math.max(64, 50 + widthPct * 0.4);
               const animNames = ["floatChip0","floatChip1","floatChip2","floatChip3"];
 
               return (
@@ -1621,12 +1789,19 @@ export default function SmartBandwidthAllocator() {
                             borderRadius: 20,
                             background: "rgba(255,255,255,0.95)",
                             border: `1.5px solid ${pipe.color}70`,
-                            color: pipe.color,
+                            // color: pipe.color,
                             fontWeight: 700,
                             whiteSpace: "nowrap",
                             boxShadow: `0 2px 6px ${pipe.color}28`,
+                            display: "inline-flex", flexDirection: "column", alignItems: "center", gap: 2,
                           }}>
-                            {item.device}
+                            <span>{item.device}</span>
+                            {(() => { const r = hostRateByKey[item.device] || hostRateByKey[item.ip] || { rx:0, tx:0 }; return (
+                              <span style={{ fontSize: 11, fontWeight: 500, color: `${pipe.color}cc`, display: "flex", gap: 6 }}>
+                                <span>↑ {fmtMbps(r.tx)} Mb/s</span>
+                                <span>↓ {fmtMbps(r.rx)} Mb/s</span>
+                              </span>
+                            ); })()}
                           </span>
                           {/* App chain — only for QoS-allocated (non-guest) clients */}
                           {!item.isGuest && item.apps.map((app, ai) => (
@@ -1658,10 +1833,246 @@ export default function SmartBandwidthAllocator() {
 
         {/* ── Modals ── */}
 
+        {/* Hourly Queue Configuration Chart Modal */}
+        {showQosChartModal && (() => {
+          const QUEUE_CFG = {
+            "Highest Priority": { color: DANGER,  height: 4, bandwidthQueue: "Highest Bandwidth Queue" },
+            "High Priority":    { color: DANGER,  height: 4, bandwidthQueue: "Highest Bandwidth Queue" },
+            "Medium Priority":  { color: WARNING, height: 3, bandwidthQueue: "Moderate Bandwidth Queue" },
+            "Normal Priority":  { color: INFO,    height: 2, bandwidthQueue: "Default Bandwidth Queue"  },
+            "Low Priority":     { color: MUTED,   height: 1, bandwidthQueue: "Low Bandwidth Queue"      },
+          };
+          const curHour = ndpiCurrentHour ?? new Date().getUTCHours();
+          const visibleHours = [0,1,2,3,4].map(i => ((curHour - 2 + i) + 24) % 24);
+
+          // SVG chart constants
+          const W = 760, H = 300;
+          const ML = 44, MR = 16, MT = 16, MB = 56;
+          const plotW = W - ML - MR;
+          const plotH = H - MT - MB;
+          const MAX_PRIO = 5;
+          const BAR_GAP = 3;
+          const GROUP_PAD = 10;
+          const groupW = plotW / visibleHours.length;
+
+          const yPos   = (v) => MT + plotH - (v / MAX_PRIO) * plotH;
+          const yBarH  = (v) => (v / MAX_PRIO) * plotH;
+
+          // Build flat bar list
+          const bars = [];
+          visibleHours.forEach((hour, gi) => {
+            const apps = (qosChartData[hour] || []);
+            const innerW = groupW - GROUP_PAD * 2;
+            const barW = apps.length > 0
+              ? Math.min(32, Math.max(8, (innerW - (apps.length - 1) * BAR_GAP) / apps.length))
+              : 0;
+            const totalW = apps.length * barW + Math.max(0, apps.length - 1) * BAR_GAP;
+            const startX = ML + gi * groupW + (groupW - totalW) / 2;
+            apps.forEach((app, bi) => {
+              const cfg = QUEUE_CFG[app.queue] || { color: MUTED, height: 1 };
+              const bx = startX + bi * (barW + BAR_GAP);
+              const bh = yBarH(cfg.height);
+              bars.push({ bx, by: MT + plotH - bh, barW, bh, hour, gi, app, cfg });
+            });
+          });
+
+          const LEGEND_ITEMS = [
+            { label: "Highest Bandwidth Queue",  color: DANGER  },
+            { label: "Moderate Bandwidth Queue", color: WARNING },
+            { label: "Default Bandwidth Queue",  color: INFO    },
+            { label: "Low Bandwidth Queue",      color: MUTED   },
+          ];
+
+          return (
+            <div style={{
+              position:"fixed", top:0, left:0, right:0, bottom:0,
+              background:"rgba(0,0,0,0.5)", display:"flex", alignItems:"center",
+              justifyContent:"center", zIndex:1000
+            }} onClick={(e) => { if (e.target === e.currentTarget) { setShowQosChartModal(false); setQosTooltip(null); } }}>
+              <div style={{
+                background:"#fff", borderRadius:12, padding:"24px",
+                maxWidth:900, width:"95%",
+                boxShadow:"0 20px 25px -5px rgba(0,0,0,0.1)",
+                maxHeight:"90vh", overflowY:"auto"
+              }}>
+                {/* Header */}
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:16 }}>
+                  <div>
+                    <div style={{ fontSize:18, fontWeight:700, color:"#111827" }}>Hourly Bandwidth Configuration</div>
+                    <div style={{ fontSize:12, color:MUTED, marginTop:3 }}>
+                      App-Queue Assignments · {`${String(((curHour-2)+24)%24).padStart(2,"0")}:00`} → {`${String(((curHour+2)+24)%24).padStart(2,"0")}:00`}
+                    </div>
+                  </div>
+                  <button onClick={() => { setShowQosChartModal(false); setQosTooltip(null); }} style={{
+                    padding:"6px 14px", borderRadius:6, border:"1px solid #e5e7eb",
+                    background:"#fff", color:MUTED, cursor:"pointer", fontSize:13, fontWeight:500, flexShrink:0
+                  }}>
+                    Close
+                  </button>
+                </div>
+
+                {/* Legend */}
+                <div style={{ display:"flex", gap:16, marginBottom:20, flexWrap:"wrap", padding:"10px 14px",
+                  background:"#f9fafb", borderRadius:8, border:"1px solid #e5e7eb" }}>
+                  {LEGEND_ITEMS.map(item => (
+                    <div key={item.label} style={{ display:"flex", alignItems:"center", gap:6, fontSize:12 }}>
+                      <div style={{ width:12, height:12, borderRadius:3, background:item.color, flexShrink:0 }} />
+                      <span style={{ color:"#374151", fontWeight:500 }}>{item.label}</span>
+                    </div>
+                  ))}
+                  {/* <div style={{ marginLeft:"auto", fontSize:11, color:MUTED, display:"flex", alignItems:"center" }}>
+                    Bar height = priority level &nbsp;·&nbsp; hover bar for details
+                  </div> */}
+                </div>
+
+                {isFetchingQosChart ? (
+                  <div style={{ display:"flex", justifyContent:"center", alignItems:"center", height:300 }}>
+                    <img src={loadingGif} alt="Loading" style={{ width:48, height:48, opacity:0.8 }} />
+                  </div>
+                ) : (
+                  <div style={{ position:"relative" }}>
+                    <svg
+                      width="100%"
+                      viewBox={`0 0 ${W} ${H}`}
+                      style={{ display:"block", overflow:"visible" }}
+                      onMouseLeave={() => setQosTooltip(null)}
+                    >
+                      {/* Y-axis gridlines + labels */}
+                      {[1,2,3,4].map(level => (
+                        <g key={level}>
+                          <line x1={ML} y1={yPos(level)} x2={ML+plotW} y2={yPos(level)}
+                            stroke="#f3f4f6" strokeWidth={1} />
+                          <text x={ML-6} y={yPos(level)+4} fontSize={9} fill={MUTED} textAnchor="end">
+                            {level}
+                          </text>
+                        </g>
+                      ))}
+
+                      {/* Hour group separators + X labels */}
+                      {visibleHours.map((hour, gi) => (
+                        <g key={`g-${hour}`}>
+                          {gi > 0 && (
+                            <line
+                              x1={ML + gi*groupW} y1={MT}
+                              x2={ML + gi*groupW} y2={MT+plotH}
+                              stroke="#e5e7eb" strokeWidth={1} strokeDasharray="3 3"
+                            />
+                          )}
+                          {/* current-hour highlight band */}
+                          {hour === curHour && (
+                            <rect
+                              x={ML + gi*groupW} y={MT}
+                              width={groupW} height={plotH}
+                              fill={PRIMARY} fillOpacity={0.04}
+                            />
+                          )}
+                          <text
+                            x={ML + gi*groupW + groupW/2}
+                            y={MT + plotH + 18}
+                            fontSize={11}
+                            fill={hour === curHour ? PRIMARY : MUTED}
+                            fontWeight={hour === curHour ? 700 : 400}
+                            textAnchor="middle"
+                          >
+                            {`${String(hour).padStart(2,"0")}:00`}
+                          </text>
+                          {hour === curHour && (
+                            <text
+                              x={ML + gi*groupW + groupW/2}
+                              y={MT + plotH + 34}
+                              fontSize={9} fill={PRIMARY} textAnchor="middle"
+                            >
+                              now
+                            </text>
+                          )}
+                        </g>
+                      ))}
+
+                      {/* Bars */}
+                      {bars.map((bar, i) => (
+                        <rect
+                          key={i}
+                          x={bar.bx} y={bar.by}
+                          width={bar.barW} height={bar.bh}
+                          fill={bar.cfg.color}
+                          rx={2}
+                          style={{ cursor:"pointer" }}
+                          onMouseEnter={(e) => {
+                            setQosTooltip({
+                              app: bar.app,
+                              hourLabel: `${String(bar.hour).padStart(2,"0")}:00`,
+                              x: e.clientX,
+                              y: e.clientY,
+                            });
+                          }}
+                          onMouseMove={(e) => {
+                            setQosTooltip(prev => prev ? { ...prev, x: e.clientX, y: e.clientY } : prev);
+                          }}
+                          onMouseLeave={() => setQosTooltip(null)}
+                        />
+                      ))}
+
+                      {/* Axes */}
+                      <line x1={ML} y1={MT} x2={ML} y2={MT+plotH} stroke="#e5e7eb" strokeWidth={1} />
+                      <line x1={ML} y1={MT+plotH} x2={ML+plotW} y2={MT+plotH} stroke="#e5e7eb" strokeWidth={1} />
+
+                      {/* Y-axis title */}
+                      <text
+                        x={10} y={MT + plotH/2}
+                        fontSize={9} fill={MUTED} textAnchor="middle"
+                        transform={`rotate(-90, 10, ${MT + plotH/2})`}
+                      >
+                        Queue
+                      </text>
+                    </svg>
+
+                    {/* Hover Tooltip */}
+                    {qosTooltip && (
+                      <div style={{
+                        position:"fixed",
+                        top: qosTooltip.y - 90,
+                        left: qosTooltip.x + 14,
+                        background:"#fff",
+                        border:"1px solid #e5e7eb",
+                        borderRadius:8,
+                        padding:"10px 13px",
+                        fontSize:12,
+                        boxShadow:"0 4px 12px rgba(0,0,0,0.12)",
+                        zIndex:2000,
+                        pointerEvents:"none",
+                        minWidth:180,
+                        lineHeight:1.7,
+                      }}>
+                        <div style={{ fontWeight:700, color:"#111827", marginBottom:4, fontSize:13 }}>
+                          {qosTooltip.app.name}
+                        </div>
+                        <div style={{ color:MUTED }}>
+                          <span style={{ color:"#374151", fontWeight:500 }}>Device&nbsp;</span>
+                          {macToNameMap[(qosTooltip.app.mac || '').toLowerCase().trim()] || qosTooltip.app.mac || "Unknown"}
+                        </div>
+                        <div style={{ color:MUTED }}>
+                          <span style={{ color:"#374151", fontWeight:500 }}>Queue&nbsp;</span>
+                          <span style={{ color: (QUEUE_CFG[qosTooltip.app.queue] || {}).color || MUTED, fontWeight:600 }}>
+                            {(QUEUE_CFG[qosTooltip.app.queue] || {}).bandwidthQueue || qosTooltip.app.queue}
+                          </span>
+                        </div>
+                        <div style={{ color:MUTED }}>
+                          <span style={{ color:"#374151", fontWeight:500 }}>Hour&nbsp;</span>
+                          {qosTooltip.hourLabel}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
         {/* App Config Modal */}
         <SimpleModal
           isOpen={showAppConfigModal}
-          title="Edit App Config - Protocol Tiers"
+          title="App Config - Protocol Tiers"
           onClose={() => { isEditingApp.current = false; setShowAppConfigModal(false); }}
           onSave={saveAppConfig}
           isSaving={isSavingConfig}

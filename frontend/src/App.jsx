@@ -167,10 +167,12 @@ function App() {
               </button>
               <div>
                 <h1 className="text-3xl font-bold tracking-wide text-white">
-                  Self-Healing Dashboard
+                  {/* Self-Healing Dashboard */}
+                  AIServices Dashboard
                 </h1>
                 <p className="text-l font-bold text-white-300">
-                  Experience uninterrupted connectivity with intelligent self-healing system.
+                  {/* Experience uninterrupted connectivity with intelligent self-healing system. */}
+                  Experience intelligent AI operations with unified visibility, control, and automation.
                 </p>
               </div>
             </div>
