@@ -1,10 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Tabs, Tab, Table, Alert, Card, Form, Button, Row, Col } from 'react-bootstrap';
 import { motion } from 'framer-motion';
-import { Server, Clock, Settings } from 'lucide-react';
+import { Server, Settings, CheckCircle, AlertCircle } from 'lucide-react';
+import { useTheme } from '../contexts/ThemeContext';
+import PropagateLoader from '../components/PropagateLoader';
+
+const R = 14;
+const FONT = "'Inter', system-ui, sans-serif";
 
 function DisplayConfigurePage() {
+  const { T } = useTheme();
   const [selfheal, setSelfheal] = useState({ params: {}, reboots: [], avgCpuThreshold: 0, avgMemoryThreshold: 0 });
   const [formData, setFormData] = useState({});
   const [activeTab, setActiveTab] = useState('display');
@@ -16,21 +21,15 @@ function DisplayConfigurePage() {
     setLoading(true);
     axios.get('/api/selfheal')
       .then(res => {
-        console.log('API Response:', res.data); // Debug: Log the API response
-        if (!res.data || !res.data.params) {
-          throw new Error('Invalid API response: params not found');
-        }
+        if (!res.data || !res.data.params) throw new Error('Invalid API response: params not found');
         setSelfheal(res.data);
         setFormData(Object.fromEntries(
-          Object.entries(res.data.params).filter(([key]) =>
-            key.includes('Threshold') || key.includes('Enable') || key.includes('Server') || key.includes('Interval') || key.includes('Needed')
-          ).map(([key, value]) => [key, value])
+          Object.entries(res.data.params)
+            .filter(([key]) => key.includes('Threshold') || key.includes('Enable') || key.includes('Server') || key.includes('Interval') || key.includes('Needed'))
+            .map(([key, value]) => [key, value])
         ));
       })
-      .catch(err => {
-        console.error('API Error:', err); // Debug: Log the error
-        setError(err.message || 'Failed to fetch selfheal data');
-      })
+      .catch(err => setError(err.message || 'Failed to fetch selfheal data'))
       .finally(() => setLoading(false));
   }, []);
 
@@ -43,152 +42,265 @@ function DisplayConfigurePage() {
     axios.post('/api/configure', { param: key, value: formData[key] })
       .then(res => {
         setSuccess(`Updated ${key} to ${res.data.updatedValue}`);
-        // Refresh selfheal data after successful update
-        axios.get('/api/selfheal').then(res => {
-          console.log('Updated API Response:', res.data); // Debug: Log the updated response
-          setSelfheal(res.data);
-        });
+        axios.get('/api/selfheal').then(r => setSelfheal(r.data));
       })
-      .catch(err => {
-        console.error('Update Error:', err); // Debug: Log the update error
-        setError(err.message || 'Failed to update parameter');
-      });
+      .catch(err => setError(err.message || 'Failed to update parameter'));
   };
 
-  if (loading) return <div className="text-center py-10 text-gray-600">Loading...</div>;
-  if (error) return <Alert variant="danger" className="m-4">Error: {error}</Alert>;
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 'calc(100vh - 80px)' }}>
+        <PropagateLoader label="Loading configuration..." />
+      </div>
+    );
+  }
+
+  const TABS = [
+    { key: 'display', label: 'Display', Icon: Server },
+    { key: 'configure', label: 'Configure', Icon: Settings },
+  ];
+
+  const cardStyle = {
+    background: T.cardBg,
+    border: `1px solid ${T.border}`,
+    borderRadius: R,
+    boxShadow: T.shadow,
+    overflow: 'hidden',
+    marginBottom: 20,
+  };
+
+  const sectionHeaderStyle = {
+    padding: '11px 16px',
+    background: T.elevated,
+    borderBottom: `1px solid ${T.border}`,
+    fontSize: 13,
+    fontWeight: 600,
+    color: T.textSec,
+  };
+
+  const thStyle = {
+    padding: '10px 14px',
+    fontSize: 12,
+    fontWeight: 600,
+    color: T.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: '0.04em',
+    borderBottom: `1px solid ${T.border}`,
+    background: T.elevated,
+    textAlign: 'left',
+  };
+
+  const tdStyle = {
+    padding: '10px 14px',
+    fontSize: 13,
+    color: T.textSec,
+    borderBottom: `1px solid ${T.border}`,
+  };
 
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      transition={{ duration: 0.5 }}
-      className="space-y-6 p-4 bg-gray-50 min-h-screen"
+      transition={{ duration: 0.4 }}
+      style={{ padding: '24px 24px 40px', maxWidth: 1000, margin: '0 auto', fontFamily: FONT }}
     >
-      {/* Tabs for Display and Configure */}
-      <Card className="bg-white shadow-lg rounded-xl overflow-hidden border border-gray-200">
-        <Card.Header className="bg-green-100 from-tinno-green-700 to-tinno-green-600 text-white p-4">
-          <Tabs
-            activeKey={activeTab}
-            onSelect={(k) => setActiveTab(k)}
-            className="mb-0"
-            variant="pills"
-          >
-            <Tab eventKey="display" className="bg-green-700" title={<span><Server className="mr-2" size={18} /> Display</span>} />
-            <Tab eventKey="configure" title={<span><Settings className="mr-2" size={18} /> Configure</span>} />
-          </Tabs>
-        </Card.Header>
-        <Card.Body className="p-6">
-          {success && <Alert variant="success" className="m-2 mb-4">{success}</Alert>}
-          {error && <Alert variant="danger" className="m-2 mb-4">Error: {error}</Alert>}
+      {/* Tab bar */}
+      <div style={{
+        display: 'flex',
+        gap: 4,
+        marginBottom: 20,
+        background: T.elevated,
+        border: `1px solid ${T.border}`,
+        borderRadius: R,
+        padding: 4,
+        width: 'fit-content',
+      }}>
+        {TABS.map(({ key, label, Icon }) => {
+          const active = activeTab === key;
+          return (
+            <button
+              key={key}
+              onClick={() => setActiveTab(key)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 7,
+                padding: '7px 16px',
+                borderRadius: 10,
+                border: 'none',
+                cursor: 'pointer',
+                fontSize: 13,
+                fontWeight: active ? 600 : 500,
+                color: active ? '#fff' : T.textMuted,
+                background: active ? T.accent : 'transparent',
+                transition: 'all 0.15s',
+                fontFamily: FONT,
+              }}
+            >
+              <Icon size={15} />
+              {label}
+            </button>
+          );
+        })}
+      </div>
 
-          {/* Display Tab */}
-          {activeTab === 'display' && (
-            <>
-              {/* Selfheal Parameters */}
-              <Card className="mb-6 border-0 shadow-sm">
-                <Card.Header className="bg-tinno-green-50 text-tinno-green-700 p-3 font-semibold">
-                  Selfheal Parameters
-                </Card.Header>
-                <Card.Body>
-                  {Object.keys(selfheal.params).length === 0 ? (
-                    <Alert variant="warning" className="m-2">
-                      No parameters available to display.
-                    </Alert>
-                  ) : (
-                    <Table striped bordered hover className="text-gray-700">
-                      <thead>
-                        <tr>
-                          <th className="bg-tinno-green-100 text-tinno-green-700 font-medium p-2">Parameter</th>
-                          <th className="bg-tinno-green-100 text-tinno-green-700 font-medium p-2">Value</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {Object.entries(selfheal.params).map(([key, value]) => (
-                          !key.includes('Reboot.') && (
-                            <tr key={key} className="hover:bg-tinno-green-50 transition-colors">
-                              <td className="p-2">{key.replace('X_TINNO-COM_SelfHeal.', '')}</td>
-                              <td className="p-2">{value}</td>
-                            </tr>
-                          )
-                        ))}
-                      </tbody>
-                    </Table>
+      {/* Alert banners */}
+      {success && (
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            padding: '10px 14px', borderRadius: 10, marginBottom: 16,
+            background: T.successBg, border: `1px solid ${T.success}30`,
+            color: T.success, fontSize: 13,
+          }}
+        >
+          <CheckCircle size={15} />
+          {success}
+        </motion.div>
+      )}
+      {error && (
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            padding: '10px 14px', borderRadius: 10, marginBottom: 16,
+            background: T.dangerBg, border: `1px solid ${T.danger}30`,
+            color: T.danger, fontSize: 13,
+          }}
+        >
+          <AlertCircle size={15} />
+          Error: {error}
+        </motion.div>
+      )}
+
+      {/* DISPLAY TAB */}
+      {activeTab === 'display' && (
+        <>
+          {/* Selfheal Parameters */}
+          <div style={cardStyle}>
+            <div style={sectionHeaderStyle}>Selfheal Parameters</div>
+            {Object.keys(selfheal.params).length === 0 ? (
+              <div style={{ padding: '16px', color: T.textMuted, fontSize: 13 }}>No parameters available to display.</div>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr>
+                    <th style={thStyle}>Parameter</th>
+                    <th style={thStyle}>Value</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(selfheal.params).map(([key, value]) =>
+                    !key.includes('Reboot.') && (
+                      <tr key={key} style={{ transition: 'background 0.12s' }}
+                        onMouseEnter={e => e.currentTarget.style.background = T.hover}
+                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                      >
+                        <td style={tdStyle}>{key.replace('X_TINNO-COM_SelfHeal.', '')}</td>
+                        <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 12 }}>{value}</td>
+                      </tr>
+                    )
                   )}
-                </Card.Body>
-              </Card>
+                </tbody>
+              </table>
+            )}
+          </div>
 
-              {/* Reboot Logs */}
-              <Card className="border-0 shadow-sm">
-                <Card.Header className="bg-tinno-green-50 text-tinno-green-700 p-3 font-semibold">
-                  SelfHeal Event Logs
-                </Card.Header>
-                <Card.Body>
-                  {selfheal.reboots.length === 0 ? (
-                    <Alert variant="info" className="m-2 bg-blue-50">
-                      No reboot logs available.
-                    </Alert>
-                  ) : (
-                    <Table striped bordered hover className="text-gray-700">
-                      <thead>
-                        <tr>
-                          <th className="bg-tinno-green-100 text-tinno-green-700 font-medium p-2">Reason</th>
-                          <th className="bg-tinno-green-100 text-tinno-green-700 font-medium p-2">Time</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {selfheal.reboots.map((log, index) => (
-                          <tr key={index} className="hover:bg-tinno-green-50 transition-colors">
-                            <td className="p-2">{log.reason}</td>
-                            <td className="p-2">{log.time}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </Table>
-                  )}
-                </Card.Body>
-              </Card>
-            </>
-          )}
+          {/* Reboot Logs */}
+          <div style={cardStyle}>
+            <div style={sectionHeaderStyle}>SelfHeal Event Logs</div>
+            {selfheal.reboots.length === 0 ? (
+              <div style={{ padding: '16px', color: T.textMuted, fontSize: 13 }}>No reboot logs available.</div>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr>
+                    <th style={thStyle}>Reason</th>
+                    <th style={thStyle}>Time</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {selfheal.reboots.map((log, index) => (
+                    <tr key={index}
+                      onMouseEnter={e => e.currentTarget.style.background = T.hover}
+                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                    >
+                      <td style={tdStyle}>{log.reason}</td>
+                      <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 12 }}>{log.time}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </>
+      )}
 
-          {/* Configure Tab */}
-          {activeTab === 'configure' && (
-            <Card className="border-0 shadow-sm">
-              <Card.Header className="bg-tinno-green-50 text-tinno-green-700 p-3 font-semibold">
-                Configure Self-Healing Parameters
-              </Card.Header>
-              <Card.Body>
-                {Object.keys(formData).length === 0 ? (
-                  <Alert variant="warning" className="m-2">
-                    No configurable parameters available.
-                  </Alert>
-                ) : (
-                  <Form>
-                    {Object.keys(formData).map(key => (
-                      <Row key={key} className="mb-4 align-items-center">
-                        <Col md={4}><Form.Label className="text-gray-700">{key.replace('X_TINNO-COM_SelfHeal.', '')}</Form.Label></Col>
-                        <Col md={6}>
-                          <Form.Control
-                            name={key}
-                            value={formData[key] || ''}
-                            onChange={handleChange}
-                            className="border-tinno-gray-500"
-                          />
-                        </Col>
-                        <Col md={2}>
-                          <Button variant="success" onClick={() => handleSubmit(key)} className="w-100">
-                            Update
-                          </Button>
-                        </Col>
-                      </Row>
-                    ))}
-                  </Form>
-                )}
-              </Card.Body>
-            </Card>
+      {/* CONFIGURE TAB */}
+      {activeTab === 'configure' && (
+        <div style={cardStyle}>
+          <div style={sectionHeaderStyle}>Configure Self-Healing Parameters</div>
+          {Object.keys(formData).length === 0 ? (
+            <div style={{ padding: '16px', color: T.textMuted, fontSize: 13 }}>No configurable parameters available.</div>
+          ) : (
+            <div style={{ padding: '16px 20px' }}>
+              {Object.keys(formData).map(key => (
+                <div key={key} style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 1.5fr auto',
+                  gap: 12,
+                  alignItems: 'center',
+                  paddingBottom: 14,
+                  marginBottom: 14,
+                  borderBottom: `1px solid ${T.border}`,
+                }}>
+                  <label style={{ fontSize: 13, color: T.textSec, fontWeight: 500 }}>
+                    {key.replace('X_TINNO-COM_SelfHeal.', '')}
+                  </label>
+                  <input
+                    name={key}
+                    value={formData[key] || ''}
+                    onChange={handleChange}
+                    style={{
+                      padding: '8px 12px',
+                      background: T.elevated,
+                      border: `1px solid ${T.border}`,
+                      borderRadius: 8,
+                      color: T.textPrimary,
+                      fontSize: 13,
+                      outline: 'none',
+                      fontFamily: FONT,
+                      transition: 'border-color 0.15s, box-shadow 0.15s',
+                    }}
+                    onFocus={e => { e.target.style.borderColor = T.accent; e.target.style.boxShadow = `0 0 0 3px ${T.accentMuted}`; }}
+                    onBlur={e => { e.target.style.borderColor = T.border; e.target.style.boxShadow = 'none'; }}
+                  />
+                  <motion.button
+                    whileHover={{ scale: 1.04 }}
+                    whileTap={{ scale: 0.96 }}
+                    onClick={() => handleSubmit(key)}
+                    style={{
+                      padding: '8px 18px',
+                      background: T.accent,
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: 8,
+                      fontSize: 13,
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      fontFamily: FONT,
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    Update
+                  </motion.button>
+                </div>
+              ))}
+            </div>
           )}
-        </Card.Body>
-      </Card>
+        </div>
+      )}
     </motion.div>
   );
 }

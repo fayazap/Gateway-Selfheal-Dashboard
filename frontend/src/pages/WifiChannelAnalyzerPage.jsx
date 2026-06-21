@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import loadingGif from '../assets/loading.gif';
+import PropagateLoader from '../components/PropagateLoader';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
   ResponsiveContainer, Cell, Area, AreaChart, LineChart, Line, Legend
@@ -8,27 +8,13 @@ import {
   Wifi, TrendingUp, AlertTriangle, Activity, Radio,
   Eye, BarChart2
 } from "lucide-react";
-
-/* ─────────────────────────────────────────────
-   DESIGN SYSTEM
-───────────────────────────────────────────── */
-const DS = {
-  primary:    "#037A53",
-  danger:     "#dc2626",
-  warning:    "#d97706",
-  info:       "#2563eb",
-  textMuted:  "#6b7280",
-  bg:         "#f8fafc",
-  cardBg:     "#ffffff",
-  cardBorder: "#e5e7eb",
-  radius:     10,
-  font:       "system-ui, -apple-system, sans-serif",
-};
+import { useTheme } from '../contexts/ThemeContext';
 
 /* ─────────────────────────────────────────────
    CONSTANTS & HELPERS
 ───────────────────────────────────────────── */
 const POLLING_INTERVAL_MS = 60 * 1000;
+const RADIUS = 10;
 
 const channelRanges = {
   '2.4': Array.from({ length: 14 }, (_, i) => i + 1),
@@ -39,10 +25,11 @@ const channelRanges = {
   ]
 };
 
-const congestionColor = (v) => {
-  if (v <= 30) return DS.primary;
-  if (v <= 70) return DS.warning;
-  return DS.danger;
+const congestionColor = (v, T) => {
+  if (!T) return v <= 30 ? "#059669" : v <= 70 ? "#d97706" : "#dc2626";
+  if (v <= 30) return T.success;
+  if (v <= 70) return T.warning;
+  return T.danger;
 };
 
 const congestionLabel = (v) => {
@@ -55,17 +42,22 @@ const congestionLabel = (v) => {
    COMPONENTS
 ───────────────────────────────────────────── */
 function ToggleSwitch({ on, onToggle }) {
+  const { T } = useTheme();
   return (
     <div onClick={onToggle} style={{ width: 44, height: 24, borderRadius: 12,
-      background: on ? DS.primary : "#d1d5db", position: "relative", cursor: "pointer", transition: "background 0.2s" }}>
-      <div style={{ position: "absolute", top: 2, left: on ? 22 : 2, width: 20, height: 20,
+      background: on ? T.success : T.elevated,
+      border: `1px solid ${T.border}`,
+      position: "relative", cursor: "pointer", transition: "background 0.2s",
+      boxShadow: on ? `0 0 10px ${T.success}50` : 'none' }}>
+      <div style={{ position: "absolute", top: 2, left: on ? 22 : 2, width: 18, height: 18,
         borderRadius: "50%", background: "#fff", transition: "left 0.2s",
-        boxShadow: "0 1px 3px rgba(0,0,0,0.25)" }} />
+        boxShadow: "0 1px 4px rgba(0,0,0,0.35)" }} />
     </div>
   );
 }
 
 function KPICard({ icon: Icon, title, value, sub, accentColor, delay = 0 }) {
+  const { T } = useTheme();
   const [visible, setVisible] = useState(false);
   useEffect(() => {
     const t = setTimeout(() => setVisible(true), delay);
@@ -74,33 +66,34 @@ function KPICard({ icon: Icon, title, value, sub, accentColor, delay = 0 }) {
 
   return (
     <div style={{
-      background: DS.cardBg,
-      border: `1px solid ${DS.cardBorder}`,
-      borderRadius: DS.radius,
+      background: T.cardBg,
+      border: `1px solid ${T.border}`,
+      borderRadius: RADIUS,
       padding: "16px 18px",
       flex: 1,
       minWidth: 140,
       opacity: visible ? 1 : 0,
       transform: visible ? "translateY(0)" : "translateY(12px)",
-      transition: "opacity 0.4s ease, transform 0.4s ease, box-shadow 0.2s",
+      transition: "opacity 0.4s ease, transform 0.4s ease, box-shadow 0.2s, border-color 0.2s",
       cursor: "default",
+      boxShadow: T.shadow,
     }}
-      onMouseEnter={e => e.currentTarget.style.boxShadow = "0 4px 16px rgba(0,0,0,0.08)"}
-      onMouseLeave={e => e.currentTarget.style.boxShadow = "none"}
+      onMouseEnter={e => { e.currentTarget.style.boxShadow = T.shadowHover; e.currentTarget.style.borderColor = T.borderStrong; }}
+      onMouseLeave={e => { e.currentTarget.style.boxShadow = T.shadow; e.currentTarget.style.borderColor = T.border; }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
         <div style={{
           width: 32, height: 32, borderRadius: 8,
-          background: `${accentColor}15`,
+          background: `${accentColor}18`,
           display: "flex", alignItems: "center", justifyContent: "center",
           flexShrink: 0,
         }}>
           <Icon size={15} color={accentColor} />
         </div>
         <span style={{
-          fontSize: 11, color: DS.textMuted,
-          letterSpacing: "0.06em", textTransform: "uppercase",
-          fontFamily: "monospace", fontWeight: 600,
+          fontSize: 14, color: T.textMuted,
+          letterSpacing: "0.08em", textTransform: "uppercase",
+          fontFamily: "monospace", fontWeight: 700,
         }}>
           {title}
         </span>
@@ -109,11 +102,10 @@ function KPICard({ icon: Icon, title, value, sub, accentColor, delay = 0 }) {
       <div style={{
         fontSize: 26, fontWeight: 700, color: accentColor,
         lineHeight: 1, marginBottom: 4,
-        fontFamily: DS.font,
       }}>
         {value}
       </div>
-      <div style={{ fontSize: 12, color: DS.textMuted }}>
+      <div style={{ fontSize: 12, color: T.textMuted }}>
         {sub}
       </div>
     </div>
@@ -121,29 +113,29 @@ function KPICard({ icon: Icon, title, value, sub, accentColor, delay = 0 }) {
 }
 
 function CustomTooltip({ active, payload }) {
+  const { T } = useTheme();
   if (!active || !payload?.length) return null;
   const d = payload[0].payload;
-  const color = congestionColor(d.congestion);
+  const color = congestionColor(d.congestion, T);
   return (
     <div style={{
-      background: DS.cardBg,
-      border: `1px solid ${DS.cardBorder}`,
+      background: T.elevated,
+      border: `1px solid ${T.borderStrong}`,
       borderRadius: 8, padding: "10px 14px",
-      fontFamily: DS.font,
-      boxShadow: "0 4px 16px rgba(0,0,0,0.1)",
+      boxShadow: T.shadowHover,
       zIndex: 1000
     }}>
-      <div style={{ color: "#111827", fontWeight: 700, marginBottom: 4, fontSize: 13 }}>
+      <div style={{ color: T.textPrimary, fontWeight: 700, marginBottom: 4, fontSize: 13 }}>
         Ch {d.channel}
       </div>
       <div style={{ color, fontSize: 18, fontWeight: 700 }}>
         {typeof d.congestion === 'number' ? d.congestion.toFixed(1) : d.congestion}%
       </div>
-      <div style={{ color: DS.textMuted, fontSize: 11, marginTop: 2 }}>
+      <div style={{ color: T.textMuted, fontSize: 11, marginTop: 2 }}>
         {congestionLabel(d.congestion)} congestion
       </div>
       {d.aps !== undefined && d.aps > 0 && (
-        <div style={{ color: DS.textMuted, fontSize: 11, marginTop: 2 }}>
+        <div style={{ color: T.textMuted, fontSize: 11, marginTop: 2 }}>
           {d.aps} AP{d.aps > 1 ? "s" : ""} detected
         </div>
       )}
@@ -152,6 +144,7 @@ function CustomTooltip({ active, payload }) {
 }
 
 function InsightsPanel({ data, band, bestChannel, predictedChannel, predictedMap }) {
+  const { T } = useTheme();
   const insights = useMemo(() => {
     if (!data || !data.length) return [];
     
@@ -243,10 +236,10 @@ function InsightsPanel({ data, band, bestChannel, predictedChannel, predictedMap
   }, [data, bestChannel, predictedChannel, predictedMap]);
 
   const typeStyle = {
-    success: { color: DS.primary,  bg: `${DS.primary}10`,  border: `${DS.primary}25` },
-    warn:    { color: DS.warning,  bg: `${DS.warning}10`,  border: `${DS.warning}25` },
-    danger:  { color: DS.danger,   bg: `${DS.danger}10`,   border: `${DS.danger}25` },
-    info:    { color: DS.info,     bg: `${DS.info}10`,     border: `${DS.info}25` },
+    success: { color: T.success, bg: T.successBg, border: `${T.success}30` },
+    warn:    { color: T.warning, bg: T.warningBg, border: `${T.warning}30` },
+    danger:  { color: T.danger,  bg: T.dangerBg,  border: `${T.danger}30` },
+    info:    { color: T.info,    bg: T.infoBg,    border: `${T.info}30` },
   };
 
   return (
@@ -264,7 +257,7 @@ function InsightsPanel({ data, band, bestChannel, predictedChannel, predictedMap
               color: s.color, fontFamily: "monospace", fontSize: 13,
               fontWeight: 700, flexShrink: 0, width: 16, textAlign: "center",
             }}>{ins.icon}</span>
-            <span style={{ color: "#374151", fontSize: 12, lineHeight: 1.5 }}>
+            <span style={{ color: T.textSec, fontSize: 12, lineHeight: 1.5 }}>
               {ins.text}
             </span>
           </div>
@@ -275,6 +268,7 @@ function InsightsPanel({ data, band, bestChannel, predictedChannel, predictedMap
 }
 
 function TopChannels({ data }) {
+  const { T } = useTheme();
   const top5 = useMemo(() => {
     if (!data || !data.length) return [];
     return [...data].filter(d => typeof d.congestion === 'number').sort((a, b) => a.congestion - b.congestion).slice(0, 5);
@@ -291,11 +285,11 @@ function TopChannels({ data }) {
     return (
       <div style={{
         padding: "20px 16px",
-        background: `${DS.primary}05`,
+        background: T.successBg,
         borderRadius: "12px",
-        border: `1px dashed ${DS.primary}30`,
+        border: `1px dashed ${T.success}40`,
         textAlign: "center",
-        color: DS.textMuted,
+        color: T.textMuted,
         fontSize: "13px",
         display: "flex",
         alignItems: "center",
@@ -310,19 +304,19 @@ function TopChannels({ data }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       {top5.map((d, i) => {
-        const color = congestionColor(d.congestion);
+        const color = congestionColor(d.congestion, T);
         return (
           <div key={d.channel} style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <span style={{
-              fontSize: 11, color: DS.textMuted,
+              fontSize: 11, color: T.textMuted,
               fontFamily: "monospace", width: 18, textAlign: "center", flexShrink: 0,
             }}>#{i + 1}</span>
             <span style={{
-              fontSize: 12, color: "#111827", fontFamily: "monospace",
+              fontSize: 12, color: T.textPrimary, fontFamily: "monospace",
               width: 60, flexShrink: 0, fontWeight: 600,
             }}>Ch {d.channel}</span>
             <div style={{
-              flex: 1, height: 5, background: "#f3f4f6",
+              flex: 1, height: 5, background: T.elevated,
               borderRadius: 3, overflow: "hidden",
             }}>
               <div style={{
@@ -343,9 +337,10 @@ function TopChannels({ data }) {
 }
 
 function SignalMeter({ value }) {
+  const { T } = useTheme();
   const bars = 5;
   const filled = Math.round((value / 100) * bars);
-  const color = congestionColor(value);
+  const color = congestionColor(value, T);
   return (
     <div style={{ display: "flex", gap: 2, alignItems: "flex-end" }}>
       {Array.from({ length: bars }, (_, i) => (
@@ -353,7 +348,8 @@ function SignalMeter({ value }) {
           width: 4,
           height: 5 + i * 3,
           borderRadius: 2,
-          background: i < filled ? color : "#e5e7eb",
+          background: i < filled ? color : T.elevated,
+          transition: "background 0.3s",
         }} />
       ))}
     </div>
@@ -366,6 +362,18 @@ function SignalMeter({ value }) {
    MAIN PAGE
 ───────────────────────────────────────────── */
 export default function WifiChannelAnalyzerPage() {
+  const { T } = useTheme();
+  const DS = {
+    primary:    T.success,
+    danger:     T.danger,
+    warning:    T.warning,
+    info:       T.info,
+    textMuted:  T.textMuted,
+    bg:         T.bg,
+    cardBg:     T.cardBg,
+    cardBorder: T.border,
+    radius:     RADIUS,
+  };
   const [band, setBand] = useState('2.4');
   const [analyzerEnabled, setAnalyzerEnabled] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -737,50 +745,48 @@ export default function WifiChannelAnalyzerPage() {
         }
         * { box-sizing: border-box; }
       `}</style>
-      
+
       <div style={{
-        background: DS.bg,
+        background: T.bg,
         minHeight: "100vh",
-        fontFamily: DS.font,
-        color: "#111827",
+        fontFamily: "system-ui, -apple-system, sans-serif",
+        color: T.textPrimary,
       }}>
         {/* HEADER */}
-        <div style={{ background: "#fff", borderBottom: "1px solid #e5e7eb", padding: "13px 24px",
-          display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ background: T.cardBg, borderBottom: `1px solid ${T.border}`, padding: "13px 24px", margin: "18px 20px 0px 20px",
+        display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{ width: 36, height: 36, borderRadius: 8, background: "#e8f5f0",
+            <div style={{ width: 36, height: 36, borderRadius: 8, background: T.successBg,
+              border: `1px solid ${T.success}30`,
               display: "flex", alignItems: "center", justifyContent: "center" }}>
               <Wifi size={18} color={DS.primary} />
             </div>
             <div>
-              <div style={{ fontWeight: 700, fontSize: 16, color: "#111827" }}>WiFi Analyzer</div>
-              {/* <div style={{ fontSize: 11, color: "#9ca3af", fontFamily: "monospace" }}>
-                Device.AIServices.WifiChannelAnalyzer · {band} GHz}
-              </div> */}
+              <div style={{ fontWeight: 700, fontSize: 16, color: T.textPrimary }}>Smart Wi-Fi Channel Allocator</div>
             </div>
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
             <div style={{
-              display: "flex", background: "#f3f4f6",
-              border: `1px solid ${DS.cardBorder}`, borderRadius: 8, padding: 3, gap: 3,
+              display: "flex", background: T.elevated,
+              border: `1px solid ${T.border}`, borderRadius: 8, padding: 3, gap: 3,
             }}>
               {["2.4", "5"].map(b => (
-                <button key={b} onClick={() => { 
+                <button key={b} onClick={() => {
                   if (band !== b) {
-                    setBand(b); 
-                    setData([]); // Clear data to trigger loader
+                    setBand(b);
+                    setData([]);
                     setIsLoading(true);
-                    setTimestamp(new Date()); 
-                    lastTimestampRef.current = null; 
+                    setTimestamp(new Date());
+                    lastTimestampRef.current = null;
                   }
                 }} style={{
                   padding: "5px 14px", borderRadius: 6, border: "none", cursor: "pointer",
-                  background: band === b ? DS.cardBg : "transparent",
+                  background: band === b ? T.cardBg : "transparent",
                   color: band === b ? DS.primary : DS.textMuted,
                   fontSize: 12, fontFamily: "monospace", fontWeight: 700,
                   transition: "all 0.2s",
-                  boxShadow: band === b ? "0 1px 4px rgba(0,0,0,0.08)" : "none",
+                  boxShadow: band === b ? T.shadow : "none",
                 }}>
                   {b} GHz
                 </button>
@@ -804,22 +810,22 @@ export default function WifiChannelAnalyzerPage() {
 
         {analyzerEnabled === null || (analyzerEnabled && isLoading && !data.length) ? (
           <div style={{ display: "flex", justifyContent: "center", alignItems: "center", minHeight: "calc(100vh - 80px)" }}>
-            <img src={loadingGif} alt="Loading..." style={{ width: 64, height: 64 }} />
+            <PropagateLoader label="Loading..." />
           </div>
         ) : !analyzerEnabled ? (
           <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", minHeight: "calc(100vh - 80px)", color: DS.textMuted }}>
-            <Wifi size={48} color="#e5e7eb" style={{ marginBottom: 16 }} />
-            <div style={{ fontSize: 18, fontWeight: 600, color: "#374151" }}>WiFi Analyzer Disabled</div>
+            <Wifi size={48} color={T.border} style={{ marginBottom: 16 }} />
+            <div style={{ fontSize: 18, fontWeight: 600, color: T.textSec }}>WiFi Analyzer Disabled</div>
             <div style={{ fontSize: 13, marginTop: 4 }}>Enable the service to view real-time channel congestion.</div>
           </div>
         ) : (
           <div style={{ padding: "24px", maxWidth: 1200, margin: "0 auto", display: "flex", flexDirection: "column", gap: 16 }}>
             {error && (
             <div style={{
-              background: `${DS.danger}10`,
-              border: `1px solid ${DS.danger}30`,
-              borderRadius: DS.radius, padding: "10px 14px",
-              color: DS.danger, fontSize: 13,
+              background: T.dangerBg,
+              border: `1px solid ${T.danger}30`,
+              borderRadius: RADIUS, padding: "10px 14px",
+              color: T.danger, fontSize: 13,
               display: "flex", alignItems: "center", gap: 8,
             }}>
               <AlertTriangle size={14} /> {error}
@@ -867,24 +873,25 @@ export default function WifiChannelAnalyzerPage() {
           {/* MAIN CONTENT AREA */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: 12 }}>
             <div style={{
-              background: DS.cardBg,
-              border: `1px solid ${DS.cardBorder}`,
-              borderRadius: DS.radius, padding: "18px",
+              background: T.cardBg,
+              border: `1px solid ${T.border}`,
+              borderRadius: RADIUS, padding: "18px",
+              boxShadow: T.shadow,
               transition: "box-shadow 0.2s",
               minHeight: 320,
               position: 'relative',
               display: 'flex',
               flexDirection: 'column'
             }}
-              onMouseEnter={e => e.currentTarget.style.boxShadow = "0 4px 16px rgba(0,0,0,0.08)"}
-              onMouseLeave={e => e.currentTarget.style.boxShadow = "none"}
+              onMouseEnter={e => e.currentTarget.style.boxShadow = T.shadowHover}
+              onMouseLeave={e => e.currentTarget.style.boxShadow = T.shadow}
             >
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
                 <div>
-                  <div style={{ fontSize: 14, color: "#111827", fontWeight: 700 }}>
+                  <div style={{ fontSize: 14, color: T.textPrimary, fontWeight: 700 }}>
                     Channel Utilization — {band} GHz
                   </div>
-                  <div style={{ fontSize: 12, color: DS.textMuted, marginTop: 2 }}>
+                  <div style={{ fontSize: 12, color: T.textMuted, marginTop: 2 }}>
                     Real-time congestion across {data.length} channels
                   </div>
                 </div>
@@ -892,9 +899,9 @@ export default function WifiChannelAnalyzerPage() {
                   {["bar", "area"].map(v => (
                     <button key={v} onClick={() => setChartView(v)} style={{
                       padding: "5px 10px", borderRadius: 6,
-                      background: chartView === v ? `${DS.primary}15` : "#f3f4f6",
-                      border: `1px solid ${chartView === v ? DS.primary + "40" : DS.cardBorder}`,
-                      color: chartView === v ? DS.primary : DS.textMuted,
+                      background: chartView === v ? T.successBg : T.elevated,
+                      border: `1px solid ${chartView === v ? T.success + "40" : T.border}`,
+                      color: chartView === v ? T.success : T.textMuted,
                       fontSize: 11, fontFamily: "monospace", cursor: "pointer",
                       transition: "all 0.2s", textTransform: "uppercase", letterSpacing: "0.05em",
                       fontWeight: 600,
@@ -923,20 +930,20 @@ export default function WifiChannelAnalyzerPage() {
                   <ResponsiveContainer width="100%" height="100%">
                     {chartView === "bar" ? (
                       <BarChart data={data} margin={{ top: 4, right: 4, left: -20, bottom: 0 }} barCategoryGap="15%">
-                        <CartesianGrid stroke="#f3f4f6" strokeDasharray="3 3" vertical={false} />
+                        <CartesianGrid stroke={T.border} strokeDasharray="3 3" vertical={false} />
                         <XAxis
                           dataKey="channel"
-                          tick={{ fill: DS.textMuted, fontSize: band === "5" ? 9 : 11, fontFamily: "monospace" }}
+                          tick={{ fill: T.textMuted, fontSize: band === "5" ? 9 : 11, fontFamily: "monospace" }}
                           axisLine={false} tickLine={false}
                           interval={band === "5" ? 1 : 0}
                         />
                         <YAxis
                           domain={[0, 100]}
-                          tick={{ fill: DS.textMuted, fontSize: 10, fontFamily: "monospace" }}
+                          tick={{ fill: T.textMuted, fontSize: 10, fontFamily: "monospace" }}
                           axisLine={false} tickLine={false}
                           tickFormatter={v => `${v}%`}
                         />
-                        <RechartsTooltip content={<CustomTooltip />} cursor={{ fill: "#f9fafb" }} />
+                        <RechartsTooltip content={<CustomTooltip />} cursor={{ fill: T.elevated }} />
                         <Bar dataKey="congestion" radius={[4, 4, 0, 0]} maxBarSize={band === "5" ? 18 : 28}>
                           {data.map((entry) => (
                             <Cell key={entry.channel} fill={congestionColor(entry.congestion)} />
@@ -951,20 +958,20 @@ export default function WifiChannelAnalyzerPage() {
                             <stop offset="95%" stopColor={DS.primary} stopOpacity={0.02} />
                           </linearGradient>
                         </defs>
-                        <CartesianGrid stroke="#f3f4f6" strokeDasharray="3 3" vertical={false} />
+                        <CartesianGrid stroke={T.border} strokeDasharray="3 3" vertical={false} />
                         <XAxis
                           dataKey="channel"
-                          tick={{ fill: DS.textMuted, fontSize: band === "5" ? 9 : 11, fontFamily: "monospace" }}
+                          tick={{ fill: T.textMuted, fontSize: band === "5" ? 9 : 11, fontFamily: "monospace" }}
                           axisLine={false} tickLine={false}
                           interval={band === "5" ? 1 : 0}
                         />
                         <YAxis
                           domain={[0, 100]}
-                          tick={{ fill: DS.textMuted, fontSize: 10, fontFamily: "monospace" }}
+                          tick={{ fill: T.textMuted, fontSize: 10, fontFamily: "monospace" }}
                           axisLine={false} tickLine={false}
                           tickFormatter={v => `${v}%`}
                         />
-                        <RechartsTooltip content={<CustomTooltip />} cursor={{ stroke: `${DS.primary}50`, strokeWidth: 1 }} />
+                        <RechartsTooltip content={<CustomTooltip />} cursor={{ stroke: `${T.success}50`, strokeWidth: 1 }} />
                         <Area
                           type="monotone" dataKey="congestion"
                           stroke={DS.primary} strokeWidth={2}
@@ -976,8 +983,8 @@ export default function WifiChannelAnalyzerPage() {
                     )}
                   </ResponsiveContainer>
                 ) : (
-                  <div className="absolute inset-0 flex items-center justify-center">
-                     {isLoading && <img src={loadingGif} alt="Loading..." className="h-16 w-16" />}
+                  <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    {isLoading && <PropagateLoader />}
                   </div>
                 )}
               </div>
@@ -996,40 +1003,41 @@ export default function WifiChannelAnalyzerPage() {
                   }
                 }
                 return (
-                <div style={{ flex: 1, minHeight: 180, marginTop: 24, paddingTop: 16, borderTop: `1px dashed ${DS.cardBorder}` }}>
-                  <div style={{ fontSize: 13, color: "#111827", fontWeight: 700, marginBottom: 12 }}>
+                <div style={{ flex: 1, minHeight: 180, marginTop: 24, paddingTop: 16, borderTop: `1px dashed ${T.border}` }}>
+                  <div style={{ fontSize: 13, color: T.textPrimary, fontWeight: 700, marginBottom: 12 }}>
                     4-Hour Historical Trend
                   </div>
                   <ResponsiveContainer width="100%" height="80%">
                     <LineChart data={timelineData} margin={{ top: 5, right: 10, left: -25, bottom: 0 }}>
-                      <CartesianGrid stroke="#f3f4f6" strokeDasharray="3 3" vertical={false} />
-                      <XAxis 
+                      <CartesianGrid stroke={T.border} strokeDasharray="3 3" vertical={false} />
+                      <XAxis
                         dataKey="timeRaw"
                         type="number"
                         domain={['dataMin', 'dataMax']}
                         ticks={hourTicks}
                         tickFormatter={v => new Date(v).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        tick={{ fill: DS.textMuted, fontSize: 10, fontFamily: "monospace" }}
-                        axisLine={false} tickLine={false} 
+                        tick={{ fill: T.textMuted, fontSize: 10, fontFamily: "monospace" }}
+                        axisLine={false} tickLine={false}
                       />
-                      <YAxis 
-                        domain={['auto', 'auto']} 
-                        tick={{ fill: DS.textMuted, fontSize: 10, fontFamily: "monospace" }}
+                      <YAxis
+                        domain={['auto', 'auto']}
+                        tick={{ fill: T.textMuted, fontSize: 10, fontFamily: "monospace" }}
                         axisLine={false} tickLine={false}
                         tickFormatter={v => `${v}%`}
                       />
-                      <RechartsTooltip 
+                      <RechartsTooltip
                         labelFormatter={(v) => new Date(v).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         formatter={(value, name, props) => {
                           if (name === "Real Time Channel" && props.payload.bestCh) return [`Ch ${props.payload.bestCh}, ${value}%`, name];
                           if (name === "Predicted Channel" && props.payload.predCh) return [`Ch ${props.payload.predCh}, ${value}%`, name];
                           return [`${value}%`, name];
                         }}
-                        contentStyle={{ borderRadius: 8, border: "none", boxShadow: "0 4px 12px rgba(0,0,0,0.1)", fontSize: 12 }}
+                        contentStyle={{ borderRadius: 8, border: `1px solid ${T.borderStrong}`, background: T.elevated, color: T.textPrimary, boxShadow: T.shadowHover, fontSize: 12 }}
+                        labelStyle={{ color: T.textMuted }}
                       />
-                      <Legend iconType="circle" wrapperStyle={{ fontSize: 11, fontFamily: "monospace" }} />
-                      <Line type="monotone" name="Real Time Channel" dataKey="best" stroke={DS.primary} strokeWidth={2} dot={false} />
-                      <Line type="monotone" name="Predicted Channel" dataKey="pred" stroke={DS.info} strokeWidth={2} dot={false} />
+                      <Legend iconType="circle" wrapperStyle={{ fontSize: 11, fontFamily: "monospace", color: T.textMuted }} />
+                      <Line type="monotone" name="Real Time Channel" dataKey="best" stroke={T.success} strokeWidth={2} dot={false} />
+                      <Line type="monotone" name="Predicted Channel" dataKey="pred" stroke={T.info} strokeWidth={2} dot={false} />
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
@@ -1038,19 +1046,20 @@ export default function WifiChannelAnalyzerPage() {
 
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <div style={{
-                background: DS.cardBg,
-                border: `1px solid ${DS.cardBorder}`,
-                borderRadius: DS.radius, padding: "16px",
+                background: T.cardBg,
+                border: `1px solid ${T.border}`,
+                borderRadius: RADIUS, padding: "16px",
+                boxShadow: T.shadow,
                 flex: 1,
                 transition: "box-shadow 0.2s",
               }}
-                onMouseEnter={e => e.currentTarget.style.boxShadow = "0 4px 16px rgba(0,0,0,0.08)"}
-                onMouseLeave={e => e.currentTarget.style.boxShadow = "none"}
+                onMouseEnter={e => e.currentTarget.style.boxShadow = T.shadowHover}
+                onMouseLeave={e => e.currentTarget.style.boxShadow = T.shadow}
               >
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-                  <Eye size={13} color={DS.info} />
+                  <Eye size={13} color={T.info} />
                   <span style={{
-                    fontSize: 11, color: DS.textMuted,
+                    fontSize: 11, color: T.textMuted,
                     letterSpacing: "0.08em", textTransform: "uppercase",
                     fontFamily: "monospace", fontWeight: 600,
                   }}>
@@ -1069,18 +1078,19 @@ export default function WifiChannelAnalyzerPage() {
               </div>
 
               <div style={{
-                background: DS.cardBg,
-                border: `1px solid ${DS.cardBorder}`,
-                borderRadius: DS.radius, padding: "16px",
+                background: T.cardBg,
+                border: `1px solid ${T.border}`,
+                borderRadius: RADIUS, padding: "16px",
+                boxShadow: T.shadow,
                 transition: "box-shadow 0.2s",
               }}
-                onMouseEnter={e => e.currentTarget.style.boxShadow = "0 4px 16px rgba(0,0,0,0.08)"}
-                onMouseLeave={e => e.currentTarget.style.boxShadow = "none"}
+                onMouseEnter={e => e.currentTarget.style.boxShadow = T.shadowHover}
+                onMouseLeave={e => e.currentTarget.style.boxShadow = T.shadow}
               >
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-                  <BarChart2 size={13} color={DS.primary} />
+                  <BarChart2 size={13} color={T.success} />
                   <span style={{
-                    fontSize: 11, color: DS.textMuted,
+                    fontSize: 11, color: T.textMuted,
                     letterSpacing: "0.08em", textTransform: "uppercase",
                     fontFamily: "monospace", fontWeight: 600,
                   }}>
@@ -1094,9 +1104,9 @@ export default function WifiChannelAnalyzerPage() {
 
           {/* FOOTER */}
           <div style={{
-            background: DS.cardBg,
-            border: `1px solid ${DS.cardBorder}`,
-            borderRadius: DS.radius, padding: "10px 16px",
+            background: T.cardBg,
+            border: `1px solid ${T.border}`,
+            borderRadius: RADIUS, padding: "10px 16px",
             display: "flex", alignItems: "center", justifyContent: "space-between",
             flexWrap: "wrap", gap: 10,
           }}>
@@ -1104,23 +1114,23 @@ export default function WifiChannelAnalyzerPage() {
               {kpis && (
                 <>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontSize: 11, color: DS.textMuted, fontFamily: "monospace" }}>REAL TIME CH</span>
-                    <span style={{ fontSize: 12, color: DS.primary, fontWeight: 700, fontFamily: "monospace" }}>
+                    <span style={{ fontSize: 11, color: T.textMuted, fontFamily: "monospace" }}>REAL TIME CH</span>
+                    <span style={{ fontSize: 12, color: T.success, fontWeight: 700, fontFamily: "monospace" }}>
                       {kpis.best?.channel !== 'N/A' ? kpis.best.channel : 'N/A'}
                     </span>
                     {kpis.best?.channel !== 'N/A' && <SignalMeter value={100 - kpis.best.congestion} />}
                   </div>
-                  <div style={{ width: 1, height: 16, background: DS.cardBorder }} />
+                  <div style={{ width: 1, height: 16, background: T.border }} />
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontSize: 11, color: DS.textMuted, fontFamily: "monospace" }}>PREDICTED CH</span>
-                    <span style={{ fontSize: 12, color: DS.info, fontWeight: 700, fontFamily: "monospace" }}>
+                    <span style={{ fontSize: 11, color: T.textMuted, fontFamily: "monospace" }}>PREDICTED CH</span>
+                    <span style={{ fontSize: 12, color: T.info, fontWeight: 700, fontFamily: "monospace" }}>
                       {kpis.predicted?.channel !== 'N/A' ? kpis.predicted.channel : 'N/A'}
                     </span>
                   </div>
-                  <div style={{ width: 1, height: 16, background: DS.cardBorder }} />
+                  <div style={{ width: 1, height: 16, background: T.border }} />
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontSize: 11, color: DS.textMuted, fontFamily: "monospace" }}>AVG CONG</span>
-                    <span style={{ fontSize: 12, color: congestionColor(kpis.avg), fontWeight: 700, fontFamily: "monospace" }}>
+                    <span style={{ fontSize: 11, color: T.textMuted, fontFamily: "monospace" }}>AVG CONG</span>
+                    <span style={{ fontSize: 12, color: congestionColor(kpis.avg, T), fontWeight: 700, fontFamily: "monospace" }}>
                       {kpis.avg?.toFixed(1)}%
                     </span>
                   </div>
@@ -1129,8 +1139,8 @@ export default function WifiChannelAnalyzerPage() {
             </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: 12, color: DS.textMuted, fontFamily: "monospace" }}>LATEST FETCH : </span>
-              <span style={{ fontSize: 13, color: DS.textMuted, fontFamily: "monospace" }}>
+              <span style={{ fontSize: 12, color: T.textMuted, fontFamily: "monospace" }}>LATEST FETCH : </span>
+              <span style={{ fontSize: 13, color: T.textSec, fontFamily: "monospace" }}>
                 {timestamp.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).replace(' AM', ' A.M').replace(' PM', ' P.M')}
               </span>
             </div>

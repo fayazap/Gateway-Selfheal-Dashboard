@@ -2,8 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { BarChart, Plus, Trash2, Check, Play } from 'lucide-react';
 import axios from 'axios';
+import { useTheme } from '../contexts/ThemeContext';
+
+const FONT = "'Inter', system-ui, sans-serif";
+const R = 16;
 
 function LCMPage() {
+  const { T } = useTheme();
   const [summary, setSummary] = useState({
     totalContainers: 0,
     activeContainers: 0,
@@ -33,131 +38,125 @@ function LCMPage() {
   }, []);
 
   const fetchData = async () => {
-  try {
-    const lcmResponse = await axios.get('/api/lcm');
-    const lcmData = lcmResponse.data;
-    const summaryResponse = await axios.get('/api/summary');
-    const summaryData = summaryResponse.data;
-    const totalContainers = parseInt(lcmData.SoftwareModules?.['SoftwareModules.ExecutionUnitNumberOfEntries']?.replace(/"/g, '') || '0');
-    const executionUnits = lcmData.ExecutionUnits || [];
-    const deploymentUnits = lcmData.DeploymentUnits || [];
+    try {
+      const lcmResponse = await axios.get('/api/lcm');
+      const lcmData = lcmResponse.data;
+      const summaryResponse = await axios.get('/api/summary');
+      const summaryData = summaryResponse.data;
+      const totalContainers = parseInt(lcmData.SoftwareModules?.['SoftwareModules.ExecutionUnitNumberOfEntries']?.replace(/"/g, '') || '0');
+      const executionUnits = lcmData.ExecutionUnits || [];
+      const deploymentUnits = lcmData.DeploymentUnits || [];
 
-    const activeContainers = executionUnits.reduce((count, unit) => {
-      const statusKey = Object.keys(unit).find(key => key.endsWith('.Status'));
-      return count + (statusKey && unit[statusKey]?.replace(/"/g, '') === 'Active' ? 1 : 0);
-    }, 0);
+      const activeContainers = executionUnits.reduce((count, unit) => {
+        const statusKey = Object.keys(unit).find(key => key.endsWith('.Status'));
+        return count + (statusKey && unit[statusKey]?.replace(/"/g, '') === 'Active' ? 1 : 0);
+      }, 0);
 
-    const totalCpuUsed = parseFloat(summaryData.cpuUsage?.replace('%', '') || '0');
-    const totalMemoryUsed = parseFloat(summaryData.memoryUsage?.replace(/"/g, '') || '0');
+      const totalCpuUsed = parseFloat(summaryData.cpuUsage?.replace('%', '') || '0');
+      const totalMemoryUsed = parseFloat(summaryData.memoryUsage?.replace(/"/g, '') || '0');
 
-    setSummary({ totalContainers, activeContainers, totalMemoryUsed, totalCpuUsed });
+      setSummary({ totalContainers, activeContainers, totalMemoryUsed, totalCpuUsed });
 
-    const allContainers = [];
-    const seenDuids = new Set();
-    const containersMap = new Map();
+      const allContainers = [];
+      const seenDuids = new Set();
+      const containersMap = new Map();
 
-    // Process deploymentUnits first
-    deploymentUnits.forEach(unit => {
-      const duidKey = Object.keys(unit).find(key => key.endsWith('.DUID') || key.endsWith('.EUID'));
-      const uuidKey = Object.keys(unit).find(key => key.endsWith('.UUID'));
-      const nameKey = Object.keys(unit).find(key => key.endsWith('.Name'));
-      const statusKey = Object.keys(unit).find(key => key.endsWith('.Status'));
-      const urlKey = Object.keys(unit).find(key => key.endsWith('.URL'));
-      const descriptionKey = Object.keys(unit).find(key => key.endsWith('.Description'));
-      const vendorKey = Object.keys(unit).find(key => key.endsWith('.Vendor'));
-      const versionKey = Object.keys(unit).find(key => key.endsWith('.Version'));
-      const aliasKey = Object.keys(unit).find(key => key.endsWith('.Alias'));
-      const installedKey = Object.keys(unit).find(key => key.endsWith('.Installed') || key.endsWith('.CreationTime'));
-      const lastUpdateKey = Object.keys(unit).find(key => key.endsWith('.LastUpdate'));
+      deploymentUnits.forEach(unit => {
+        const duidKey = Object.keys(unit).find(key => key.endsWith('.DUID') || key.endsWith('.EUID'));
+        const uuidKey = Object.keys(unit).find(key => key.endsWith('.UUID'));
+        const nameKey = Object.keys(unit).find(key => key.endsWith('.Name'));
+        const statusKey = Object.keys(unit).find(key => key.endsWith('.Status'));
+        const urlKey = Object.keys(unit).find(key => key.endsWith('.URL'));
+        const descriptionKey = Object.keys(unit).find(key => key.endsWith('.Description'));
+        const vendorKey = Object.keys(unit).find(key => key.endsWith('.Vendor'));
+        const versionKey = Object.keys(unit).find(key => key.endsWith('.Version'));
+        const aliasKey = Object.keys(unit).find(key => key.endsWith('.Alias'));
+        const installedKey = Object.keys(unit).find(key => key.endsWith('.Installed') || key.endsWith('.CreationTime'));
+        const lastUpdateKey = Object.keys(unit).find(key => key.endsWith('.LastUpdate'));
 
-      const duid = duidKey ? unit[duidKey]?.replace(/"/g, '') : uuidKey ? unit[uuidKey]?.replace(/"/g, '') : null;
+        const duid = duidKey ? unit[duidKey]?.replace(/"/g, '') : uuidKey ? unit[uuidKey]?.replace(/"/g, '') : null;
 
-      if (duid) {
-        const containerData = {
-          unitIndex: null, // Will be set when matching with ExecutionUnits
-          index: allContainers.length + 1,
-          name: unit[nameKey]?.replace(/"/g, '') || 'Unnamed',
-          url: urlKey ? unit[urlKey]?.replace(/"/g, '') : 'N/A',
-          description: descriptionKey ? unit[descriptionKey]?.replace(/"/g, '') : 'N/A',
-          vendor: vendorKey ? unit[vendorKey]?.replace(/"/g, '') : 'N/A',
-          version: versionKey ? unit[versionKey]?.replace(/"/g, '') : 'N/A',
-          alias: aliasKey ? unit[aliasKey]?.replace(/"/g, '') : 'N/A',
-          duid: duid || 'N/A',
-          installed: installedKey ? unit[installedKey]?.replace(/"/g, '') : 'N/A',
-          lastUpdate: lastUpdateKey ? unit[lastUpdateKey]?.replace(/"/g, '') : 'N/A',
-          deploymentStatus: statusKey ? unit[statusKey]?.replace(/"/g, '') : 'N/A',
-          executionStatus: 'N/A',
-          uuid: uuidKey ? unit[uuidKey]?.replace(/"/g, '') : 'N/A',
-        };
-        containersMap.set(duid, containerData);
-        seenDuids.add(duid);
-      }
-    });
-
-    // Process executionUnits and merge with deployment data, assign unitIndex
-    executionUnits.forEach((unit, unitIdx) => {
-      const duidKey = Object.keys(unit).find(key => key.endsWith('.DUID') || key.endsWith('.EUID'));
-      const uuidKey = Object.keys(unit).find(key => key.endsWith('.UUID'));
-      const nameKey = Object.keys(unit).find(key => key.endsWith('.Name'));
-      const statusKey = Object.keys(unit).find(key => key.endsWith('.Status'));
-      const aliasKey = Object.keys(unit).find(key => key.endsWith('.Alias'));
-      const installedKey = Object.keys(unit).find(key => key.endsWith('.Installed') || key.endsWith('.CreationTime'));
-      const lastUpdateKey = Object.keys(unit).find(key => key.endsWith('.LastUpdate'));
-
-      const duid = duidKey ? unit[duidKey]?.replace(/"/g, '') : uuidKey ? unit[uuidKey]?.replace(/"/g, '') : null;
-
-      if (duid) {
-        let containerData = containersMap.get(duid);
-        if (!containerData) {
-          containerData = {
-            unitIndex: unitIdx + 1, // Assign unitIndex based on executionUnits order (1-based)
+        if (duid) {
+          const containerData = {
+            unitIndex: null,
             index: allContainers.length + 1,
             name: unit[nameKey]?.replace(/"/g, '') || 'Unnamed',
-            url: 'N/A',
-            description: 'N/A',
-            vendor: 'N/A',
-            version: 'N/A',
-            alias: unit[aliasKey]?.replace(/"/g, '') || 'N/A',
+            url: urlKey ? unit[urlKey]?.replace(/"/g, '') : 'N/A',
+            description: descriptionKey ? unit[descriptionKey]?.replace(/"/g, '') : 'N/A',
+            vendor: vendorKey ? unit[vendorKey]?.replace(/"/g, '') : 'N/A',
+            version: versionKey ? unit[versionKey]?.replace(/"/g, '') : 'N/A',
+            alias: aliasKey ? unit[aliasKey]?.replace(/"/g, '') : 'N/A',
             duid: duid || 'N/A',
-            installed: unit[installedKey]?.replace(/"/g, '') || 'N/A',
+            installed: installedKey ? unit[installedKey]?.replace(/"/g, '') : 'N/A',
             lastUpdate: lastUpdateKey ? unit[lastUpdateKey]?.replace(/"/g, '') : 'N/A',
-            deploymentStatus: 'N/A',
-            executionStatus: statusKey ? unit[statusKey]?.replace(/"/g, '') : 'N/A',
+            deploymentStatus: statusKey ? unit[statusKey]?.replace(/"/g, '') : 'N/A',
+            executionStatus: 'N/A',
             uuid: uuidKey ? unit[uuidKey]?.replace(/"/g, '') : 'N/A',
           };
+          containersMap.set(duid, containerData);
           seenDuids.add(duid);
-        } else {
-          containerData.executionStatus = statusKey ? unit[statusKey]?.replace(/"/g, '') : containerData.executionStatus;
-          containerData.unitIndex = unitIdx + 1; // Assign unitIndex
         }
-        containersMap.set(duid, containerData);
-      }
-    });
+      });
 
-    containersMap.forEach(value => allContainers.push(value));
+      executionUnits.forEach((unit, unitIdx) => {
+        const duidKey = Object.keys(unit).find(key => key.endsWith('.DUID') || key.endsWith('.EUID'));
+        const uuidKey = Object.keys(unit).find(key => key.endsWith('.UUID'));
+        const nameKey = Object.keys(unit).find(key => key.endsWith('.Name'));
+        const statusKey = Object.keys(unit).find(key => key.endsWith('.Status'));
+        const aliasKey = Object.keys(unit).find(key => key.endsWith('.Alias'));
+        const installedKey = Object.keys(unit).find(key => key.endsWith('.Installed') || key.endsWith('.CreationTime'));
+        const lastUpdateKey = Object.keys(unit).find(key => key.endsWith('.LastUpdate'));
 
-    const newExistingContainers = allContainers;
-    setExistingContainers(newExistingContainers);
-    setContainers(lcmData.ContainerLibrary || []);
+        const duid = duidKey ? unit[duidKey]?.replace(/"/g, '') : uuidKey ? unit[uuidKey]?.replace(/"/g, '') : null;
 
-    const allUuids = new Set([
-      ...newExistingContainers.map(c => c.uuid),
-      ...containers.map(c => c.uuid),
-    ].filter(uuid => uuid !== 'N/A' && uuid !== undefined));
-    setUsedUuids(allUuids);
-  } catch (error) {
-    console.error('Error fetching data:', error);
-  }
-};
+        if (duid) {
+          let containerData = containersMap.get(duid);
+          if (!containerData) {
+            containerData = {
+              unitIndex: unitIdx + 1,
+              index: allContainers.length + 1,
+              name: unit[nameKey]?.replace(/"/g, '') || 'Unnamed',
+              url: 'N/A',
+              description: 'N/A',
+              vendor: 'N/A',
+              version: 'N/A',
+              alias: unit[aliasKey]?.replace(/"/g, '') || 'N/A',
+              duid: duid || 'N/A',
+              installed: unit[installedKey]?.replace(/"/g, '') || 'N/A',
+              lastUpdate: lastUpdateKey ? unit[lastUpdateKey]?.replace(/"/g, '') : 'N/A',
+              deploymentStatus: 'N/A',
+              executionStatus: statusKey ? unit[statusKey]?.replace(/"/g, '') : 'N/A',
+              uuid: uuidKey ? unit[uuidKey]?.replace(/"/g, '') : 'N/A',
+            };
+            seenDuids.add(duid);
+          } else {
+            containerData.executionStatus = statusKey ? unit[statusKey]?.replace(/"/g, '') : containerData.executionStatus;
+            containerData.unitIndex = unitIdx + 1;
+          }
+          containersMap.set(duid, containerData);
+        }
+      });
+
+      containersMap.forEach(value => allContainers.push(value));
+
+      const newExistingContainers = allContainers;
+      setExistingContainers(newExistingContainers);
+      setContainers(lcmData.ContainerLibrary || []);
+
+      const allUuids = new Set([
+        ...newExistingContainers.map(c => c.uuid),
+        ...containers.map(c => c.uuid),
+      ].filter(uuid => uuid !== 'N/A' && uuid !== undefined));
+      setUsedUuids(allUuids);
+    } catch (error) {
+      console.error('Error fetching data:', error);
+    }
+  };
 
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
-    setNewContainer({
-      ...newContainer,
-      [name]: type === "checkbox" ? checked : value,
-    });
+    setNewContainer({ ...newContainer, [name]: type === 'checkbox' ? checked : value });
   };
-
 
   const handleAddContainer = async (e) => {
     e.preventDefault();
@@ -176,18 +175,17 @@ function LCMPage() {
     }
   };
 
-const handleDeleteContainer = async (index) => {
-  const container = containers[index];
-  try {
-    await axios.post('/api/lcm/delete', { name: container.name });
-    const newContainers = containers.filter((_, i) => i !== index);
-    setContainers(newContainers);
-    setShowDeleteConfirm(null);
-    await fetchData(); // Add this line to refresh all data
-  } catch (err) {
-    console.error('Error deleting container:', err);
-  }
-};
+  const handleDeleteContainer = async (index) => {
+    const container = containers[index];
+    try {
+      await axios.post('/api/lcm/delete', { name: container.name });
+      setContainers(containers.filter((_, i) => i !== index));
+      setShowDeleteConfirm(null);
+      await fetchData();
+    } catch (err) {
+      console.error('Error deleting container:', err);
+    }
+  };
 
   const handleInstallContainer = async (index) => {
     const container = containers[index];
@@ -198,7 +196,6 @@ const handleDeleteContainer = async (index) => {
         setShowInstallConfirm(null);
         return;
       }
-
       const generateUniqueLast12 = () => Math.floor(Math.random() * 0x1000000000000).toString(16).padStart(12, '0');
       let newUuid = `00000000-0000-5000-b000-${generateUniqueLast12()}`;
       let attempts = 0;
@@ -207,14 +204,11 @@ const handleDeleteContainer = async (index) => {
         attempts++;
       }
       if (attempts >= 100) throw new Error('Unable to generate a unique UUID after 100 attempts');
-
       usedUuids.add(newUuid);
       setUsedUuids(new Set(usedUuids));
-
       const response = await axios.post('/api/lcm/install', { url: container.url, uuid: newUuid, name: container.name });
       if (response.data.success) {
-        const newContainers = containers.filter((_, i) => i !== index);
-        setContainers(newContainers);
+        setContainers(containers.filter((_, i) => i !== index));
         setShowInstallConfirm(null);
         await fetchData();
       }
@@ -224,82 +218,115 @@ const handleDeleteContainer = async (index) => {
   };
 
   const handleStartContainer = async (index) => {
-  try {
-    const container = existingContainers[index];
-    if (container.unitIndex) {
-      console.log("Starting container with unitIndex:", container.unitIndex);
-      await axios.post('/api/lcm/start', { unitIndex: container.unitIndex });
-      setShowStartConfirm(null);
-      await fetchData();
-    } else {
-      console.warn("No unitIndex found for container:", container.name);
+    try {
+      const container = existingContainers[index];
+      if (container.unitIndex) {
+        await axios.post('/api/lcm/start', { unitIndex: container.unitIndex });
+        setShowStartConfirm(null);
+        await fetchData();
+      } else {
+        console.warn('No unitIndex found for container:', container.name);
+      }
+    } catch (err) {
+      console.error('Error starting container:', err);
     }
-  } catch (err) {
-    console.error('Error starting container:', err);
-  }
-};
-
-const handleStopContainer = async (index) => {
-  try {
-    const container = existingContainers[index];
-    if (container.unitIndex) {
-      console.log("Stopping container with unitIndex:", container.unitIndex);
-      const updatedContainers = [...existingContainers];
-      updatedContainers[index].executionStatus = 'Idle'; // Optimistic update
-      setExistingContainers(updatedContainers);
-      setShowStopConfirm(null);
-      await axios.post('/api/lcm/stop', { unitIndex: container.unitIndex });
-      await fetchData(); // Refresh with actual data
-    } else {
-      console.warn("No unitIndex found for container:", container.name);
-    }
-  } catch (err) {
-    console.error('Error stopping container:', err);
-    await fetchData(); // Revert on failure
-  }
-};
-
-const handleUninstallContainer = async (index) => {
-  try {
-    const container = existingContainers[index];
-    if (container.unitIndex && container.index) {
-      await axios.post('/api/lcm/uninstall', {
-        unitIndex: container.unitIndex,
-        deploymentIndex: container.index, // Use index for deploymentUnit, adjust if needed
-      });
-      const newContainers = existingContainers.filter((_, i) => i !== index);
-      setExistingContainers(newContainers);
-      setShowUninstallConfirm(null);
-      await fetchData();
-    } else {
-      console.warn("No unitIndex or index found for container:", container.name);
-    }
-  } catch (err) {
-    console.error('Error uninstalling container:', err);
-  }
-};
-
-  const handleViewDetails = (container) => {
-    setSelectedContainer(container);
   };
 
-  const closePopup = () => {
-    setSelectedContainer(null);
+  const handleStopContainer = async (index) => {
+    try {
+      const container = existingContainers[index];
+      if (container.unitIndex) {
+        const updatedContainers = [...existingContainers];
+        updatedContainers[index].executionStatus = 'Idle';
+        setExistingContainers(updatedContainers);
+        setShowStopConfirm(null);
+        await axios.post('/api/lcm/stop', { unitIndex: container.unitIndex });
+        await fetchData();
+      } else {
+        console.warn('No unitIndex found for container:', container.name);
+      }
+    } catch (err) {
+      console.error('Error stopping container:', err);
+      await fetchData();
+    }
   };
+
+  const handleUninstallContainer = async (index) => {
+    try {
+      const container = existingContainers[index];
+      if (container.unitIndex && container.index) {
+        await axios.post('/api/lcm/uninstall', { unitIndex: container.unitIndex, deploymentIndex: container.index });
+        setExistingContainers(existingContainers.filter((_, i) => i !== index));
+        setShowUninstallConfirm(null);
+        await fetchData();
+      } else {
+        console.warn('No unitIndex or index found for container:', container.name);
+      }
+    } catch (err) {
+      console.error('Error uninstalling container:', err);
+    }
+  };
+
+  const handleViewDetails = (container) => setSelectedContainer(container);
+  const closePopup = () => setSelectedContainer(null);
+
+  // ── Style helpers ──────────────────────────────────────────────
+  const section = {
+    background: T.cardBg,
+    border: `1px solid ${T.border}`,
+    borderRadius: R,
+    boxShadow: T.shadow,
+    padding: 24,
+    marginBottom: 24,
+    backdropFilter: 'blur(16px)',
+  };
+
+  const btnPrimary = {
+    display: 'inline-flex', alignItems: 'center', gap: 6,
+    padding: '6px 14px', borderRadius: 20, border: 'none',
+    background: T.accent, color: '#fff',
+    fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: FONT,
+  };
+
+  const btnDanger = { ...btnPrimary, background: T.danger };
+  const btnWarning = { ...btnPrimary, background: T.warning };
+  const btnNeutral = { ...btnPrimary, background: T.elevated, color: T.textSec };
+  const btnSm = { ...btnPrimary, padding: '4px 10px', fontSize: 11 };
+  const btnSmDanger = { ...btnSm, background: T.danger };
+  const btnSmWarning = { ...btnSm, background: T.warning };
+  const btnSmNeutral = { ...btnSm, background: T.elevated, color: T.textSec };
+
+  const confirmBox = (bg, border, textColor) => ({
+    marginTop: 8, padding: '10px 12px',
+    background: bg, border: `1px solid ${border}`,
+    borderRadius: 10,
+  });
+
+  const inputStyle = {
+    width: '100%', padding: '8px 12px',
+    background: T.elevated, border: `1px solid ${T.border}`,
+    borderRadius: 8, color: T.textPrimary, fontSize: 13,
+    outline: 'none', boxSizing: 'border-box', fontFamily: FONT,
+    transition: 'border-color 0.15s, box-shadow 0.15s',
+  };
+
+  const onFocus = e => { e.target.style.borderColor = T.accent; e.target.style.boxShadow = `0 0 0 3px ${T.accentMuted}`; };
+  const onBlur  = e => { e.target.style.borderColor = T.border; e.target.style.boxShadow = 'none'; };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-white p-6 font-inter">
+    <div style={{ minHeight: '100vh', background: T.bg, padding: 24, fontFamily: FONT }}>
+      {/* Summary */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, ease: 'easeOut' }}
-        className="bg-white/90 backdrop-blur-sm p-6 rounded-2xl shadow-2xl mb-8 border border-gray-100"
+        style={section}
       >
-        <h2 className="text-xl font-semibold mb-6 text-gray-800 flex items-center gap-3">
-          <BarChart className="text-tinno-green-700" size={24} />
+        <h2 style={{ margin: '0 0 20px', fontSize: 17, fontWeight: 600, color: T.textPrimary, display: 'flex', alignItems: 'center', gap: 10 }}>
+          <BarChart size={20} color={T.accent} />
           Services Summary
         </h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14 }}>
           {[
             { label: 'Total Services', value: summary.totalContainers },
             { label: 'Active Services', value: summary.activeContainers },
@@ -308,193 +335,123 @@ const handleUninstallContainer = async (index) => {
           ].map((item, index) => (
             <motion.div
               key={index}
-              whileHover={{ scale: 1.05 }}
-              className="p-4 bg-gradient-to-r from-white to-gray-50 rounded-xl border border-gray-200 shadow-md text-center transition-all duration-300"
+              whileHover={{ scale: 1.04 }}
+              style={{
+                padding: '14px 16px',
+                background: T.elevated,
+                border: `1px solid ${T.border}`,
+                borderRadius: 12,
+                textAlign: 'center',
+                transition: 'all 0.2s',
+              }}
             >
-              <p className="text-gray-600 text-xs font-medium uppercase tracking-wide">{item.label}</p>
-              <p className="text-lg font-bold text-gray-900 mt-1">{item.value}</p>
+              <p style={{ margin: '0 0 4px', fontSize: 11, fontWeight: 500, color: T.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{item.label}</p>
+              <p style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.textPrimary }}>{item.value}</p>
             </motion.div>
           ))}
         </div>
       </motion.div>
 
+      {/* Service Library */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, delay: 0.1, ease: 'easeOut' }}
-        className="bg-white/90 backdrop-blur-sm p-6 rounded-2xl shadow-2xl mb-8 border border-gray-100"
+        style={section}
       >
-        <h2 className="text-xl font-semibold mb-6 text-gray-800 flex items-center justify-between">
-          <span>Service Library</span>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+          <h2 style={{ margin: 0, fontSize: 17, fontWeight: 600, color: T.textPrimary }}>Service Library</h2>
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             onClick={() => setShowAddForm(true)}
-            className="px-3 py-1 bg-tinno-green-700 text-white rounded-full hover:bg-tinno-green-600 transition-colors flex items-center gap-2 shadow-md"
+            style={btnPrimary}
           >
-            <Plus size={16} />
-            <span className="text-xs">Add Service</span>
+            <Plus size={14} />
+            Add Service
           </motion.button>
-        </h2>
+        </div>
 
         {showAddForm && (
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
-            className="p-4 bg-white/80 backdrop-blur-sm rounded-xl border border-gray-200 shadow-lg mb-4"
+            style={{
+              padding: 16, marginBottom: 16,
+              background: T.elevated,
+              border: `1px solid ${T.border}`,
+              borderRadius: 12,
+            }}
           >
-            <h3 className="text-lg font-semibold mb-4 text-gray-800">Add New Service</h3>
-            <form onSubmit={handleAddContainer} className="space-y-3">
-              <input
-                type="text"
-                name="url"
-                value={newContainer.url}
-                onChange={handleInputChange}
-                placeholder="URL (e.g., docker://registry-1.docker.io/...)"
-                className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-tinno-green-600 focus:border-transparent transition text-sm"
-                required
-              />
-              <input
-                type="text"
-                name="name"
-                value={newContainer.name}
-                onChange={handleInputChange}
-                placeholder="Name"
-                className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-tinno-green-600 focus:border-transparent transition text-sm"
-                required
-              />
-              <input
-                type="text"
-                name="description"
-                value={newContainer.description}
-                onChange={handleInputChange}
-                placeholder="Description"
-                className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-tinno-green-600 focus:border-transparent transition text-sm"
-              />
-              <input
-                type="text"
-                name="vendor"
-                value={newContainer.vendor}
-                onChange={handleInputChange}
-                placeholder="Vendor"
-                className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-tinno-green-600 focus:border-transparent transition text-sm"
-              />
-              <input
-                type="text"
-                name="version"
-                value={newContainer.version}
-                onChange={handleInputChange}
-                placeholder="Version"
-                className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-tinno-green-600 focus:border-transparent transition text-sm"
-              />
-              <div className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  name="autostart"
-                  checked={newContainer.autostart || false}
-                  onChange={handleInputChange}
-                  className="h-4 w-4 text-tinno-green-600 focus:ring-tinno-green-600 border-gray-300 rounded"
-                />
-                <label className="text-sm text-gray-700">Autostart</label>
+            <h3 style={{ margin: '0 0 14px', fontSize: 14, fontWeight: 600, color: T.textPrimary }}>Add New Service</h3>
+            <form onSubmit={handleAddContainer} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <input type="text" name="url" value={newContainer.url} onChange={handleInputChange} placeholder="URL (e.g., docker://registry-1.docker.io/...)" style={inputStyle} onFocus={onFocus} onBlur={onBlur} required />
+              <input type="text" name="name" value={newContainer.name} onChange={handleInputChange} placeholder="Name" style={inputStyle} onFocus={onFocus} onBlur={onBlur} required />
+              <input type="text" name="description" value={newContainer.description} onChange={handleInputChange} placeholder="Description" style={inputStyle} onFocus={onFocus} onBlur={onBlur} />
+              <input type="text" name="vendor" value={newContainer.vendor} onChange={handleInputChange} placeholder="Vendor" style={inputStyle} onFocus={onFocus} onBlur={onBlur} />
+              <input type="text" name="version" value={newContainer.version} onChange={handleInputChange} placeholder="Version" style={inputStyle} onFocus={onFocus} onBlur={onBlur} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input type="checkbox" name="autostart" checked={newContainer.autostart || false} onChange={handleInputChange} style={{ width: 15, height: 15, accentColor: T.accent }} />
+                <label style={{ fontSize: 13, color: T.textSec }}>Autostart</label>
               </div>
-              <div className="flex justify-end gap-3">
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  type="submit"
-                  className="px-4 py-1 bg-tinno-green-700 text-white rounded-full hover:bg-tinno-green-600 transition-colors shadow-md text-sm"
-                >
-                  Add
-                </motion.button>
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  type="button"
-                  onClick={() => setShowAddForm(false)}
-                  className="px-4 py-1 bg-gray-300 text-gray-800 rounded-full hover:bg-gray-400 transition-colors shadow-md text-sm"
-                >
-                  Cancel
-                </motion.button>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 4 }}>
+                <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} type="submit" style={btnPrimary}>Add</motion.button>
+                <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} type="button" onClick={() => setShowAddForm(false)} style={btnNeutral}>Cancel</motion.button>
               </div>
             </form>
           </motion.div>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
           {containers.map((container, index) => (
             <motion.div
               key={index}
-              initial={{ opacity: 0, y: 20 }}
+              initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
-              whileHover={{ scale: 1.03 }}
-              className="p-4 bg-gradient-to-br from-white to-gray-100 rounded-xl border border-gray-200 shadow-lg transition-all duration-300 cursor-pointer"
+              whileHover={{ scale: 1.02 }}
               onClick={() => handleViewDetails(container)}
+              style={{
+                padding: 16, background: T.cardBg,
+                border: `1px solid ${T.border}`,
+                borderRadius: 14, boxShadow: T.shadow,
+                cursor: 'pointer', transition: 'all 0.2s',
+              }}
             >
-              <h3 className="text-base font-semibold mb-3 text-gray-800">{`${container.name} - ${container.vendor}`}</h3>
-              <div className="space-y-2">
+              <h3 style={{ margin: '0 0 12px', fontSize: 14, fontWeight: 600, color: T.textPrimary }}>
+                {container.name} — {container.vendor}
+              </h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={(e) => { e.stopPropagation(); setShowDeleteConfirm(index); }}
-                  className="w-full px-3 py-1 bg-red-600 text-white rounded-full hover:bg-red-700 transition-colors flex items-center justify-center gap-1 shadow-md text-xs"
+                  whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }}
+                  onClick={e => { e.stopPropagation(); setShowDeleteConfirm(index); }}
+                  style={{ ...btnDanger, width: '100%', justifyContent: 'center' }}
                 >
-                  <Trash2 size={14} />
-                  <span className="text-xs">Delete</span>
+                  <Trash2 size={13} /> Delete
                 </motion.button>
                 {showDeleteConfirm === index && (
-                  <div className="mt-2 p-2 bg-red-50 rounded-lg border border-red-200">
-                    <p className="text-xs text-red-700">Are you sure you want to delete {container.name}?</p>
-                    <div className="mt-2 flex justify-end gap-1">
-                      <motion.button
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={(e) => { e.stopPropagation(); handleDeleteContainer(index); }}
-                        className="px-2 py-1 bg-red-600 text-white rounded-full hover:bg-red-700 text-xs"
-                      >
-                        Yes
-                      </motion.button>
-                      <motion.button
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={(e) => { e.stopPropagation(); setShowDeleteConfirm(null); }}
-                        className="px-2 py-1 bg-gray-300 text-gray-800 rounded-full hover:bg-gray-400 text-xs"
-                      >
-                        No
-                      </motion.button>
+                  <div style={confirmBox(T.dangerBg, `${T.danger}30`, T.danger)}>
+                    <p style={{ margin: '0 0 8px', fontSize: 12, color: T.danger }}>Are you sure you want to delete {container.name}?</p>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
+                      <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={e => { e.stopPropagation(); handleDeleteContainer(index); }} style={btnSmDanger}>Yes</motion.button>
+                      <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={e => { e.stopPropagation(); setShowDeleteConfirm(null); }} style={btnSmNeutral}>No</motion.button>
                     </div>
                   </div>
                 )}
                 {!existingContainers.some(c => c.url === container.url) && (
                   <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={(e) => { e.stopPropagation(); setShowInstallConfirm(index); }}
-                    className="w-full px-3 py-1 bg-tinno-green-700 text-white rounded-full hover:bg-tinno-green-600 transition-colors flex items-center justify-center gap-1 shadow-md text-xs"
+                    whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }}
+                    onClick={e => { e.stopPropagation(); setShowInstallConfirm(index); }}
+                    style={{ ...btnPrimary, width: '100%', justifyContent: 'center' }}
                   >
-                    <Check size={14} />
-                    <span className="text-xs">Add to Device</span>
+                    <Check size={13} /> Add to Device
                   </motion.button>
                 )}
                 {showInstallConfirm === index && (
-                  <div className="mt-2 p-2 bg-green-50 rounded-lg border border-green-200">
-                    <p className="text-xs text-green-700">Are you sure you want to install {container.name}?</p>
-                    <div className="mt-2 flex justify-end gap-1">
-                      <motion.button
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={(e) => { e.stopPropagation(); handleInstallContainer(index); }}
-                        className="px-2 py-1 bg-tinno-green-700 text-white rounded-full hover:bg-tinno-green-600 text-xs"
-                      >
-                        Yes
-                      </motion.button>
-                      <motion.button
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={(e) => { e.stopPropagation(); setShowInstallConfirm(null); }}
-                        className="px-2 py-1 bg-gray-300 text-gray-800 rounded-full hover:bg-gray-400 text-xs"
-                      >
-                        No
-                      </motion.button>
+                  <div style={confirmBox(T.successBg, `${T.success}30`, T.success)}>
+                    <p style={{ margin: '0 0 8px', fontSize: 12, color: T.success }}>Are you sure you want to install {container.name}?</p>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
+                      <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={e => { e.stopPropagation(); handleInstallContainer(index); }} style={{ ...btnSm, background: T.success }}>Yes</motion.button>
+                      <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={e => { e.stopPropagation(); setShowInstallConfirm(null); }} style={btnSmNeutral}>No</motion.button>
                     </div>
                   </div>
                 )}
@@ -504,299 +461,228 @@ const handleUninstallContainer = async (index) => {
         </div>
       </motion.div>
 
+      {/* Active Services */}
       <motion.div
-  initial={{ opacity: 0, y: 20 }}
-  animate={{ opacity: 1, y: 0 }}
-  transition={{ duration: 0.5, delay: 0.2, ease: 'easeOut' }}
-  className="bg-white/90 backdrop-blur-sm p-6 rounded-2xl shadow-2xl border border-gray-100"
->
-  <h2 className="text-xl font-semibold mb-6 text-gray-800">Active Services</h2>
-  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-    {existingContainers.map((container, index) => (
-      <motion.div
-        key={container.duid || container.uuid || container.index} // Use unique identifier
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        whileHover={{ scale: 1.03 }}
-        className="p-4 bg-gradient-to-br from-white to-gray-100 rounded-xl border border-gray-200 shadow-lg transition-all duration-300 cursor-pointer relative"
-        onClick={() => handleViewDetails(container)}
+        transition={{ duration: 0.5, delay: 0.2, ease: 'easeOut' }}
+        style={section}
       >
-        <div className="absolute top-2 left-2">
-          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-            container.executionStatus === 'Active' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
-          }`}>
-            {container.executionStatus || 'N/A'}
-          </span>
-        </div>
-        <div className="absolute top-2 right-2">
-          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-            container.deploymentStatus === 'Installed' ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'
-          }`}>
-            {container.deploymentStatus || 'N/A'}
-          </span>
-        </div>
+        <h2 style={{ margin: '0 0 20px', fontSize: 17, fontWeight: 600, color: T.textPrimary }}>Active Services</h2>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
+          {existingContainers.map((container, index) => (
+            <motion.div
+              key={container.duid || container.uuid || container.index}
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              whileHover={{ scale: 1.02 }}
+              onClick={() => handleViewDetails(container)}
+              style={{
+                padding: 16, background: T.cardBg,
+                border: `1px solid ${T.border}`,
+                borderRadius: 14, boxShadow: T.shadow,
+                cursor: 'pointer', position: 'relative',
+                transition: 'all 0.2s',
+              }}
+            >
+              <div style={{ position: 'absolute', top: 10, left: 10 }}>
+                <span style={{
+                  display: 'inline-flex', alignItems: 'center',
+                  padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 500,
+                  background: container.executionStatus === 'Active' ? T.successBg : T.warningBg,
+                  color: container.executionStatus === 'Active' ? T.success : T.warning,
+                }}>
+                  {container.executionStatus || 'N/A'}
+                </span>
+              </div>
+              <div style={{ position: 'absolute', top: 10, right: 10 }}>
+                <span style={{
+                  display: 'inline-flex', alignItems: 'center',
+                  padding: '2px 8px', borderRadius: 20, fontSize: 11, fontWeight: 500,
+                  background: container.deploymentStatus === 'Installed' ? T.warningBg : T.successBg,
+                  color: container.deploymentStatus === 'Installed' ? T.warning : T.success,
+                }}>
+                  {container.deploymentStatus || 'N/A'}
+                </span>
+              </div>
 
-        <h3 className="text-base font-semibold mt-2 mb-1 text-gray-800">{container.name}</h3>
-        <p className="text-xs text-gray-600 mb-1">Vendor: {container.vendor || 'N/A'}</p>
-        <p className="text-xs text-gray-600 mb-1">Version: {container.version || 'N/A'}</p>
-        <div className="flex gap-1 mt-2">
-          {container.executionStatus === 'Idle' && (
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={(e) => { e.stopPropagation(); setShowStartConfirm(index); }}
-              className="flex-1 px-2 py-1 bg-tinno-green-700 text-white rounded-full hover:bg-tinno-green-600 transition-colors flex items-center justify-center gap-1 shadow-md text-xs"
-            >
-              <Play size={14} />
-              <span className="text-xs">Start</span>
-            </motion.button>
-          )}
-          {container.executionStatus === 'Active' && (
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={(e) => { e.stopPropagation(); setShowStopConfirm(index); }}
-              className="flex-1 px-2 py-1 bg-yellow-600 text-white rounded-full hover:bg-yellow-700 transition-colors flex items-center justify-center gap-1 shadow-md text-xs"
-            >
-              <Trash2 size={14} />
-              <span className="text-xs">Stop</span>
-            </motion.button>
-          )}
-          {showStartConfirm === index && (
-            <div className="mt-2 p-2 bg-green-50 rounded-lg border border-green-200">
-              <p className="text-xs text-green-700">Are you sure you want to start {container.name}?</p>
-              <div className="mt-2 flex justify-end gap-1">
+              <h3 style={{ margin: '28px 0 4px', fontSize: 14, fontWeight: 600, color: T.textPrimary }}>{container.name}</h3>
+              <p style={{ margin: '0 0 2px', fontSize: 12, color: T.textMuted }}>Vendor: {container.vendor || 'N/A'}</p>
+              <p style={{ margin: '0 0 10px', fontSize: 12, color: T.textMuted }}>Version: {container.version || 'N/A'}</p>
+
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {container.executionStatus === 'Idle' && (
+                  <motion.button
+                    whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                    onClick={e => { e.stopPropagation(); setShowStartConfirm(index); }}
+                    style={{ ...btnSm, flex: 1, justifyContent: 'center', background: T.success }}
+                  >
+                    <Play size={12} /> Start
+                  </motion.button>
+                )}
+                {container.executionStatus === 'Active' && (
+                  <motion.button
+                    whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                    onClick={e => { e.stopPropagation(); setShowStopConfirm(index); }}
+                    style={{ ...btnSmWarning, flex: 1, justifyContent: 'center' }}
+                  >
+                    <Trash2 size={12} /> Stop
+                  </motion.button>
+                )}
                 <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={(e) => { e.stopPropagation(); handleStartContainer(index); }}
-                  className="px-1 py-1 bg-tinno-green-700 text-white rounded-full hover:bg-tinno-green-600 text-xs"
+                  whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                  onClick={e => { e.stopPropagation(); setShowUninstallConfirm(index); }}
+                  style={{ ...btnSmDanger, flex: 1, justifyContent: 'center' }}
                 >
-                  Yes
-                </motion.button>
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={(e) => { e.stopPropagation(); setShowStartConfirm(null); }}
-                  className="px-1 py-1 bg-gray-300 text-gray-800 rounded-full hover:bg-gray-400 text-xs"
-                >
-                  No
+                  <Trash2 size={12} /> Delete
                 </motion.button>
               </div>
-            </div>
-          )}
-          {showStopConfirm === index && (
-            <div className="mt-2 p-2 bg-yellow-50 rounded-lg border border-yellow-200">
-              <p className="text-xs text-yellow-700">Are you sure you want to stop {container.name}?</p>
-              <div className="mt-2 flex justify-end gap-1">
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={(e) => { e.stopPropagation(); handleStopContainer(index); }}
-                  className="px-1 py-1 bg-yellow-600 text-white rounded-full hover:bg-yellow-700 text-xs"
-                >
-                  Yes
-                </motion.button>
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={(e) => { e.stopPropagation(); setShowStopConfirm(null); }}
-                  className="px-1 py-1 bg-gray-300 text-gray-800 rounded-full hover:bg-gray-400 text-xs"
-                >
-                  No
-                </motion.button>
-              </div>
-            </div>
-          )}
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={(e) => { e.stopPropagation(); setShowUninstallConfirm(index); }}
-            className="flex-1 px-2 py-1 bg-red-600 text-white rounded-full hover:bg-red-700 transition-colors flex items-center justify-center gap-1 shadow-md text-xs"
-          >
-            <Trash2 size={14} />
-            <span className="text-xs">Delete</span>
-          </motion.button>
-          {showUninstallConfirm === index && (
-            <div className="mt-2 p-2 bg-red-50 rounded-lg border border-red-200">
-              <p className="text-xs text-red-700">Are you sure you want to delete {container.name}?</p>
-              <div className="mt-2 flex justify-end gap-1">
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={(e) => { e.stopPropagation(); handleUninstallContainer(index); }}
-                  className="px-1 py-1 bg-red-600 text-white rounded-full hover:bg-red-700 text-xs"
-                >
-                  Yes
-                </motion.button>
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={(e) => { e.stopPropagation(); setShowUninstallConfirm(null); }}
-                  className="px-1 py-1 bg-gray-300 text-gray-800 rounded-full hover:bg-gray-400 text-xs"
-                >
-                  No
-                </motion.button>
-              </div>
-            </div>
-          )}
+
+              {showStartConfirm === index && (
+                <div style={confirmBox(T.successBg, `${T.success}30`, T.success)}>
+                  <p style={{ margin: '0 0 8px', fontSize: 12, color: T.success }}>Are you sure you want to start {container.name}?</p>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
+                    <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={e => { e.stopPropagation(); handleStartContainer(index); }} style={{ ...btnSm, background: T.success }}>Yes</motion.button>
+                    <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={e => { e.stopPropagation(); setShowStartConfirm(null); }} style={btnSmNeutral}>No</motion.button>
+                  </div>
+                </div>
+              )}
+              {showStopConfirm === index && (
+                <div style={confirmBox(T.warningBg, `${T.warning}30`, T.warning)}>
+                  <p style={{ margin: '0 0 8px', fontSize: 12, color: T.warning }}>Are you sure you want to stop {container.name}?</p>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
+                    <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={e => { e.stopPropagation(); handleStopContainer(index); }} style={btnSmWarning}>Yes</motion.button>
+                    <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={e => { e.stopPropagation(); setShowStopConfirm(null); }} style={btnSmNeutral}>No</motion.button>
+                  </div>
+                </div>
+              )}
+              {showUninstallConfirm === index && (
+                <div style={confirmBox(T.dangerBg, `${T.danger}30`, T.danger)}>
+                  <p style={{ margin: '0 0 8px', fontSize: 12, color: T.danger }}>Are you sure you want to delete {container.name}?</p>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
+                    <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={e => { e.stopPropagation(); handleUninstallContainer(index); }} style={btnSmDanger}>Yes</motion.button>
+                    <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={e => { e.stopPropagation(); setShowUninstallConfirm(null); }} style={btnSmNeutral}>No</motion.button>
+                  </div>
+                </div>
+              )}
+            </motion.div>
+          ))}
         </div>
       </motion.div>
-    ))}
-  </div>
-</motion.div>
 
+      {/* Detail popup */}
       {selectedContainer && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}
           onClick={closePopup}
         >
           <motion.div
-            initial={{ y: 50, scale: 0.9 }}
+            initial={{ y: 40, scale: 0.92 }}
             animate={{ y: 0, scale: 1 }}
-            exit={{ y: 50, scale: 0.9 }}
-            className="bg-white/80 backdrop-blur-md p-4 rounded-2xl shadow-2xl max-w-md w-full mx-4"
-            onClick={(e) => e.stopPropagation()}
+            exit={{ y: 40, scale: 0.92 }}
+            style={{
+              background: T.cardBg,
+              backdropFilter: 'blur(16px)',
+              border: `1px solid ${T.border}`,
+              padding: 24,
+              borderRadius: 20,
+              boxShadow: T.shadowHover,
+              maxWidth: 480,
+              width: '100%',
+              margin: '0 16px',
+            }}
+            onClick={e => e.stopPropagation()}
           >
-            <h3 className="text-lg font-semibold mb-4 text-gray-800">{selectedContainer.name}</h3>
-            <div className="space-y-2 text-sm text-gray-700">
+            <h3 style={{ margin: '0 0 16px', fontSize: 16, fontWeight: 600, color: T.textPrimary }}>{selectedContainer.name}</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 13, color: T.textSec }}>
               {('alias' in selectedContainer && selectedContainer.alias !== undefined) ? (
                 <>
-                  <p><strong className="text-gray-900">URL:</strong> {selectedContainer.url || 'N/A'}</p>
-                  <p><strong className="text-gray-900">Description:</strong> {selectedContainer.description || 'N/A'}</p>
-                  <p><strong className="text-gray-900">Vendor:</strong> {selectedContainer.vendor || 'N/A'}</p>
-                  <p><strong className="text-gray-900">Version:</strong> {selectedContainer.version || 'N/A'}</p>
-                  <p><strong className="text-gray-900">Alias:</strong> {selectedContainer.alias || 'N/A'}</p>
-                  <p><strong className="text-gray-900">DUID:</strong> {selectedContainer.duid || 'N/A'}</p>
-                  <p><strong className="text-gray-900">Installed:</strong> {selectedContainer.installed || 'N/A'}</p>
-                  <p><strong className="text-gray-900">Last Update:</strong> {selectedContainer.lastUpdate || 'N/A'}</p>
-                  <p><strong className="text-gray-900">Execution Status:</strong> {selectedContainer.executionStatus || 'N/A'}</p>
-                  <p><strong className="text-gray-900">Deployment Status:</strong> {selectedContainer.deploymentStatus || 'N/A'}</p>
-                  <p><strong className="text-gray-900">UUID:</strong> {selectedContainer.uuid || 'N/A'}</p>
+                  <p style={{ margin: 0 }}><strong style={{ color: T.textPrimary }}>URL:</strong> {selectedContainer.url || 'N/A'}</p>
+                  <p style={{ margin: 0 }}><strong style={{ color: T.textPrimary }}>Description:</strong> {selectedContainer.description || 'N/A'}</p>
+                  <p style={{ margin: 0 }}><strong style={{ color: T.textPrimary }}>Vendor:</strong> {selectedContainer.vendor || 'N/A'}</p>
+                  <p style={{ margin: 0 }}><strong style={{ color: T.textPrimary }}>Version:</strong> {selectedContainer.version || 'N/A'}</p>
+                  <p style={{ margin: 0 }}><strong style={{ color: T.textPrimary }}>Alias:</strong> {selectedContainer.alias || 'N/A'}</p>
+                  <p style={{ margin: 0 }}><strong style={{ color: T.textPrimary }}>DUID:</strong> {selectedContainer.duid || 'N/A'}</p>
+                  <p style={{ margin: 0 }}><strong style={{ color: T.textPrimary }}>Installed:</strong> {selectedContainer.installed || 'N/A'}</p>
+                  <p style={{ margin: 0 }}><strong style={{ color: T.textPrimary }}>Last Update:</strong> {selectedContainer.lastUpdate || 'N/A'}</p>
+                  <p style={{ margin: 0 }}><strong style={{ color: T.textPrimary }}>Execution Status:</strong> {selectedContainer.executionStatus || 'N/A'}</p>
+                  <p style={{ margin: 0 }}><strong style={{ color: T.textPrimary }}>Deployment Status:</strong> {selectedContainer.deploymentStatus || 'N/A'}</p>
+                  <p style={{ margin: 0 }}><strong style={{ color: T.textPrimary }}>UUID:</strong> {selectedContainer.uuid || 'N/A'}</p>
                 </>
               ) : (
                 <>
-                  <p><strong className="text-gray-900">URL:</strong> {selectedContainer.url || 'N/A'}</p>
-                  <p><strong className="text-gray-900">Description:</strong> {selectedContainer.description || 'N/A'}</p>
-                  <p><strong className="text-gray-900">Vendor:</strong> {selectedContainer.vendor || 'N/A'}</p>
-                  <p><strong className="text-gray-900">Version:</strong> {selectedContainer.version || 'N/A'}</p>
+                  <p style={{ margin: 0 }}><strong style={{ color: T.textPrimary }}>URL:</strong> {selectedContainer.url || 'N/A'}</p>
+                  <p style={{ margin: 0 }}><strong style={{ color: T.textPrimary }}>Description:</strong> {selectedContainer.description || 'N/A'}</p>
+                  <p style={{ margin: 0 }}><strong style={{ color: T.textPrimary }}>Vendor:</strong> {selectedContainer.vendor || 'N/A'}</p>
+                  <p style={{ margin: 0 }}><strong style={{ color: T.textPrimary }}>Version:</strong> {selectedContainer.version || 'N/A'}</p>
                 </>
               )}
             </div>
-            <div className="space-y-2 mt-4">
-              {('alias' in selectedContainer && selectedContainer.alias !== undefined) ? (
-                <>
+
+            {('alias' in selectedContainer && selectedContainer.alias !== undefined) && (() => {
+              const idx = existingContainers.findIndex(c => c.index === selectedContainer.index);
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 16 }}>
                   {selectedContainer.executionStatus === 'Idle' && (
-                    <motion.button
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={(e) => { e.stopPropagation(); setShowStartConfirm(existingContainers.findIndex(c => c.index === selectedContainer.index)); }}
-                      className="w-full px-3 py-1 bg-tinno-green-700 text-white rounded-full hover:bg-tinno-green-600 transition-colors flex items-center justify-center gap-1 shadow-md text-xs"
+                    <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }}
+                      onClick={e => { e.stopPropagation(); setShowStartConfirm(idx); }}
+                      style={{ ...btnPrimary, justifyContent: 'center', background: T.success }}
                     >
-                      <Play size={14} />
-                      <span className="text-xs">Start</span>
+                      <Play size={13} /> Start
                     </motion.button>
                   )}
                   {selectedContainer.executionStatus === 'Active' && (
-                    <motion.button
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={(e) => { e.stopPropagation(); setShowStopConfirm(existingContainers.findIndex(c => c.index === selectedContainer.index)); }}
-                      className="w-full px-3 py-1 bg-yellow-600 text-white rounded-full hover:bg-yellow-700 transition-colors flex items-center justify-center gap-1 shadow-md text-xs"
+                    <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }}
+                      onClick={e => { e.stopPropagation(); setShowStopConfirm(idx); }}
+                      style={{ ...btnWarning, justifyContent: 'center' }}
                     >
-                      <Trash2 size={14} />
-                      <span className="text-xs">Stop</span>
+                      <Trash2 size={13} /> Stop
                     </motion.button>
                   )}
-                  {showStartConfirm === existingContainers.findIndex(c => c.index === selectedContainer.index) && (
-                    <div className="mt-2 p-2 bg-green-50 rounded-lg border border-green-200">
-                      <p className="text-xs text-green-700">Are you sure you want to start {selectedContainer.name}?</p>
-                      <div className="mt-2 flex justify-end gap-1">
-                        <motion.button
-                          whileHover={{ scale: 1.05 }}
-                          whileTap={{ scale: 0.95 }}
-                          onClick={(e) => { e.stopPropagation(); handleStartContainer(existingContainers.findIndex(c => c.index === selectedContainer.index)); }}
-                          className="px-1 py-1 bg-tinno-green-700 text-white rounded-full hover:bg-tinno-green-600 text-xs"
-                        >
-                          Yes
-                        </motion.button>
-                        <motion.button
-                          whileHover={{ scale: 1.05 }}
-                          whileTap={{ scale: 0.95 }}
-                          onClick={(e) => { e.stopPropagation(); setShowStartConfirm(null); }}
-                          className="px-1 py-1 bg-gray-300 text-gray-800 rounded-full hover:bg-gray-400 text-xs"
-                        >
-                          No
-                        </motion.button>
+                  {showStartConfirm === idx && (
+                    <div style={confirmBox(T.successBg, `${T.success}30`, T.success)}>
+                      <p style={{ margin: '0 0 8px', fontSize: 12, color: T.success }}>Are you sure you want to start {selectedContainer.name}?</p>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
+                        <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={e => { e.stopPropagation(); handleStartContainer(idx); }} style={{ ...btnSm, background: T.success }}>Yes</motion.button>
+                        <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={e => { e.stopPropagation(); setShowStartConfirm(null); }} style={btnSmNeutral}>No</motion.button>
                       </div>
                     </div>
                   )}
-                  {showStopConfirm === existingContainers.findIndex(c => c.index === selectedContainer.index) && (
-                    <div className="mt-2 p-2 bg-yellow-50 rounded-lg border border-yellow-200">
-                      <p className="text-xs text-yellow-700">Are you sure you want to stop {selectedContainer.name}?</p>
-                      <div className="mt-2 flex justify-end gap-1">
-                        <motion.button
-                          whileHover={{ scale: 1.05 }}
-                          whileTap={{ scale: 0.95 }}
-                          onClick={(e) => { e.stopPropagation(); handleStopContainer(existingContainers.findIndex(c => c.index === selectedContainer.index)); }}
-                          className="px-1 py-1 bg-yellow-600 text-white rounded-full hover:bg-yellow-700 text-xs"
-                        >
-                          Yes
-                        </motion.button>
-                        <motion.button
-                          whileHover={{ scale: 1.05 }}
-                          whileTap={{ scale: 0.95 }}
-                          onClick={(e) => { e.stopPropagation(); setShowStopConfirm(null); }}
-                          className="px-1 py-1 bg-gray-300 text-gray-800 rounded-full hover:bg-gray-400 text-xs"
-                        >
-                          No
-                        </motion.button>
+                  {showStopConfirm === idx && (
+                    <div style={confirmBox(T.warningBg, `${T.warning}30`, T.warning)}>
+                      <p style={{ margin: '0 0 8px', fontSize: 12, color: T.warning }}>Are you sure you want to stop {selectedContainer.name}?</p>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
+                        <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={e => { e.stopPropagation(); handleStopContainer(idx); }} style={btnSmWarning}>Yes</motion.button>
+                        <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={e => { e.stopPropagation(); setShowStopConfirm(null); }} style={btnSmNeutral}>No</motion.button>
                       </div>
                     </div>
                   )}
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={(e) => { e.stopPropagation(); setShowUninstallConfirm(existingContainers.findIndex(c => c.index === selectedContainer.index)); }}
-                    className="w-full px-3 py-1 bg-red-600 text-white rounded-full hover:bg-red-700 transition-colors flex items-center justify-center gap-1 shadow-md text-xs"
+                  <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }}
+                    onClick={e => { e.stopPropagation(); setShowUninstallConfirm(idx); }}
+                    style={{ ...btnDanger, justifyContent: 'center' }}
                   >
-                    <Trash2 size={14} />
-                    <span className="text-xs">Delete</span>
+                    <Trash2 size={13} /> Delete
                   </motion.button>
-                  {showUninstallConfirm === existingContainers.findIndex(c => c.index === selectedContainer.index) && (
-                    <div className="mt-2 p-2 bg-red-50 rounded-lg border border-red-200">
-                      <p className="text-xs text-red-700">Are you sure you want to delete {selectedContainer.name}?</p>
-                      <div className="mt-2 flex justify-end gap-1">
-                        <motion.button
-                          whileHover={{ scale: 1.05 }}
-                          whileTap={{ scale: 0.95 }}
-                          onClick={(e) => { e.stopPropagation(); handleUninstallContainer(existingContainers.findIndex(c => c.index === selectedContainer.index)); }}
-                          className="px-1 py-1 bg-red-600 text-white rounded-full hover:bg-red-700 text-xs"
-                        >
-                          Yes
-                        </motion.button>
-                        <motion.button
-                          whileHover={{ scale: 1.05 }}
-                          whileTap={{ scale: 0.95 }}
-                          onClick={(e) => { e.stopPropagation(); setShowUninstallConfirm(null); }}
-                          className="px-1 py-1 bg-gray-300 text-gray-800 rounded-full hover:bg-gray-400 text-xs"
-                        >
-                          No
-                        </motion.button>
+                  {showUninstallConfirm === idx && (
+                    <div style={confirmBox(T.dangerBg, `${T.danger}30`, T.danger)}>
+                      <p style={{ margin: '0 0 8px', fontSize: 12, color: T.danger }}>Are you sure you want to delete {selectedContainer.name}?</p>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
+                        <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={e => { e.stopPropagation(); handleUninstallContainer(idx); }} style={btnSmDanger}>Yes</motion.button>
+                        <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={e => { e.stopPropagation(); setShowUninstallConfirm(null); }} style={btnSmNeutral}>No</motion.button>
                       </div>
                     </div>
                   )}
-                </>
-              ) : null}
-            </div>
+                </div>
+              );
+            })()}
+
             <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
+              whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }}
               onClick={closePopup}
-              className="mt-4 px-4 py-1 bg-tinno-green-700 text-white rounded-full hover:bg-tinno-green-600 transition-colors shadow-md text-sm"
+              style={{ ...btnPrimary, marginTop: 16 }}
             >
               Close
             </motion.button>

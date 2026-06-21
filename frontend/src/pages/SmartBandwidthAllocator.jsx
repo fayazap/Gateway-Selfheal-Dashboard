@@ -1,6 +1,6 @@
-﻿import { useState, useEffect, useRef } from "react";
+﻿import { useState, useEffect, useLayoutEffect, useRef } from "react";
 import { Toast } from 'primereact/toast';
-import { Gamepad2, Tv, Laptop, Bot } from "lucide-react";
+import { Gamepad2, Tv, Laptop, Bot, Users, Layers, Download, Upload } from "lucide-react";
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import { TimeClock } from '@mui/x-date-pickers/TimeClock';
@@ -9,13 +9,14 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer,
 } from "recharts";
-import loadingGif from '../assets/loading.gif';
+import PropagateLoader from '../components/PropagateLoader';
+import { useTheme } from '../contexts/ThemeContext';
 
-// ── Design Tokens (matching AnomalyDetectionDashboard) ──────────
-const PRIMARY = "#037A53";
-const DANGER  = "#dc2626";
-const WARNING = "#d97706";
-const INFO    = "#2563eb";
+// Module-level color fallbacks (overridden inside component via useTheme)
+const PRIMARY = "#34d399";
+const DANGER  = "#f87171";
+const WARNING = "#fbbf24";
+const INFO    = "#60a5fa";
 const MUTED   = "#6b7280";
 
 // Deterministic seed-based "random" for chart so it doesn't re-shuffle on re-render
@@ -56,14 +57,15 @@ let PROTO_MEDIUM = [];
 let PROTO_NORMAL = [];
 let PROTO_LOW = [];
 
-const PRIORITY_STYLE = {
-  "High Priority":   { color:DANGER,  bg:"#fef2f2", border:"#fca5a5" },
-  "Medium Priority": { color:WARNING, bg:"#fffbeb", border:"#fcd34d" },
-  "Normal Priority": { color:INFO,    bg:"#eff6ff", border:"#93c5fd" },
-  "Low Priority":    { color:MUTED,   bg:"#f9fafb", border:"#e5e7eb" },
+// Module-level PRIORITY_STYLE — overridden inside component via useTheme
+let PRIORITY_STYLE = {
+  "High Priority":   { color:DANGER,  bg:"rgba(248,113,113,0.1)", border:"rgba(248,113,113,0.3)" },
+  "Medium Priority": { color:WARNING, bg:"rgba(251,191,36,0.1)",  border:"rgba(251,191,36,0.3)"  },
+  "Normal Priority": { color:INFO,    bg:"rgba(96,165,250,0.1)",  border:"rgba(96,165,250,0.3)"  },
+  "Low Priority":    { color:MUTED,   bg:"rgba(107,114,128,0.1)", border:"rgba(107,114,128,0.3)" },
 };
 
-const QUEUE_PS = {
+let QUEUE_PS = {
   "Highest Bandwidth Queue":  PRIORITY_STYLE["High Priority"],
   "Moderate Bandwidth Queue": PRIORITY_STYLE["Medium Priority"],
   "Default Bandwidth Queue":  PRIORITY_STYLE["Normal Priority"],
@@ -77,9 +79,24 @@ const PRIORITY_ORDER = {
   "Low Priority":    4,
 };
 
+const APP_LOGOS = {
+  youtube:          "/youtube.png",
+  netflix:          "/netflix.png",
+  googlemeet:       "/googlemeet.png",
+  whatsapp:         "/whatsapp.png",
+  instagram:        "/instagram.png",
+  spotify:          "/spotify.png",
+  teams:            "/teams.png",
+  teamscall:        "/teams.png",
+  amazonalexa:      "/alexa.png",
+  alexa:            "/alexa.png",
+  cod_mobile:       "/cod.png",
+};
+
 // ── Utility ─────────────────────────────────────────────────────
 
 const fmtMbps = (bytesPerSec) => (bytesPerSec * 8 / 1_000_000).toFixed(2);
+const toTitleCase = (str) => (str || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 
 const fmtBytes = (b) => {
   if (!b || b === 0) return "-";
@@ -133,45 +150,57 @@ const dashboardHourToUtcHour = (hour) => normalizeHour(hour - DASHBOARD_TZ_OFFSE
 
 // ── Sub-Components ───────────────────────────────────────────────
 
-const ToggleSwitch = ({ on, onToggle }) => (
-  <div
-    onClick={onToggle}
-    style={{ width:44, height:24, borderRadius:12, background:on?PRIMARY:"#d1d5db",
-      position:"relative", cursor:"pointer", transition:"background 0.2s" }}
-  >
-    <div style={{ position:"absolute", top:2, left:on?22:2, width:20, height:20,
-      borderRadius:"50%", background:"#fff", transition:"left 0.2s",
-      boxShadow:"0 1px 3px rgba(0,0,0,0.25)" }} />
-  </div>
-);
+const ToggleSwitch = ({ on, onToggle }) => {
+  const { T } = useTheme();
+  return (
+    <div
+      onClick={onToggle}
+      style={{ width:44, height:24, borderRadius:12, background:on ? T.success : T.elevated,
+        border: `1px solid ${on ? T.success : T.border}`,
+        position:"relative", cursor:"pointer", transition:"background 0.2s" }}
+    >
+      <div style={{ position:"absolute", top:2, left:on?22:2, width:18, height:18,
+        borderRadius:"50%", background:on ? "#fff" : T.textMuted, transition:"left 0.2s",
+        boxShadow:"0 1px 3px rgba(0,0,0,0.25)" }} />
+    </div>
+  );
+};
 
-const ChevronRight = () => (
-  <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke={MUTED}
-    strokeWidth="2" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>
-);
+const ChevronRight = () => {
+  const { T } = useTheme();
+  return (
+    <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke={T.textMuted}
+      strokeWidth="2" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+  );
+};
 
-const WaveIcon = () => (
-  <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke={PRIMARY}
-    strokeWidth="2" strokeLinecap="round">
-    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
-  </svg>
-);
+const WaveIcon = () => {
+  const { T } = useTheme();
+  return (
+    <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke={T.success}
+      strokeWidth="2" strokeLinecap="round">
+      <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+    </svg>
+  );
+};
 
 // ── Modal Components ─────────────────────────────────────────────
 
 const SimpleModal = ({ isOpen, title, children, onClose, onSave, isSaving }) => {
+  const { T } = useTheme();
   if (!isOpen) return null;
   return (
     <div style={{
       position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
-      background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center",
+      background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center",
       justifyContent: "center", zIndex: 1000
     }}>
       <div style={{
-        background: "#fff", borderRadius: 12, padding: "24px", maxWidth: "500px",
-        width: "90%", boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1)"
+        background: T.cardBg, border: `1px solid ${T.borderStrong}`,
+        borderRadius: 12, padding: "24px", maxWidth: "500px",
+        width: "90%", boxShadow: T.shadowHover
       }}>
-        <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 16, color: "#111827" }}>
+        <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 16, color: T.textPrimary }}>
           {title}
         </div>
         <div style={{ marginBottom: 20 }}>
@@ -179,14 +208,14 @@ const SimpleModal = ({ isOpen, title, children, onClose, onSave, isSaving }) => 
         </div>
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
           <button onClick={onClose} style={{
-            padding: "8px 16px", borderRadius: 6, border: "1px solid #e5e7eb",
-            background: "#fff", color: MUTED, cursor: "pointer", fontSize: 13, fontWeight: 500
+            padding: "8px 16px", borderRadius: 6, border: `1px solid ${T.border}`,
+            background: T.elevated, color: T.textMuted, cursor: "pointer", fontSize: 13, fontWeight: 500
           }}>
             Cancel
           </button>
           <button onClick={onSave} disabled={isSaving} style={{
             padding: "8px 16px", borderRadius: 6, border: "none",
-            background: isSaving ? "#d1d5db" : PRIMARY, color: "#fff",
+            background: isSaving ? T.elevated : T.success, color: isSaving ? T.textMuted : "#fff",
             cursor: isSaving ? "default" : "pointer", fontSize: 13, fontWeight: 500
           }}>
             {isSaving ? "Saving..." : "Save"}
@@ -241,6 +270,14 @@ export default function SmartBandwidthAllocator() {
   const [ndpiCurrentHour, setNdpiCurrentHour] = useState(null);
   const [qosTooltip, setQosTooltip] = useState(null);
   const [allocCardHovered, setAllocCardHovered] = useState(false);
+  const [pipeOverflow, setPipeOverflow] = useState({});
+
+  const [showDeviceHistoryModal, setShowDeviceHistoryModal] = useState(false);
+  const [historySelectedDevice, setHistorySelectedDevice] = useState(null);
+  const [deviceHistoryPoints, setDeviceHistoryPoints] = useState([]);
+  const [isFetchingHistory, setIsFetchingHistory] = useState(false);
+  const [historyTooltip, setHistoryTooltip] = useState(null);
+  const [historyUsedDate, setHistoryUsedDate] = useState(null);
 
   const [activeHosts, setActiveHosts] = useState([]);
   const [qosClassifications, setQosClassifications] = useState([]);
@@ -252,6 +289,30 @@ export default function SmartBandwidthAllocator() {
   const isEditingCapacityRef = useRef(false);
   const toastRef = useRef(null);
   const prevActiveMacsRef = useRef(null);
+  const trafficCacheRef = useRef(null);
+  const pipeContainerRef = useRef({});
+  const pipeInnerRef = useRef({});
+
+  const { T, theme } = useTheme();
+  const isDark = theme === 'dark';
+  // Shadow module-level constants with theme-aware values
+  const PRIMARY = T.success;
+  const DANGER  = T.danger;
+  const WARNING = T.warning;
+  const INFO    = T.info;
+  const MUTED   = T.textMuted;
+  const PRIORITY_STYLE = {
+    "High Priority":   { color: T.danger,   bg: T.dangerBg,  border: T.danger  + "30" },
+    "Medium Priority": { color: T.warning,  bg: T.warningBg, border: T.warning + "30" },
+    "Normal Priority": { color: T.info,     bg: T.infoBg,    border: T.info    + "30" },
+    "Low Priority":    { color: T.textMuted, bg: T.mutedBg,  border: T.border },
+  };
+  const QUEUE_PS = {
+    "Highest Bandwidth Queue":  PRIORITY_STYLE["High Priority"],
+    "Moderate Bandwidth Queue": PRIORITY_STYLE["Medium Priority"],
+    "Default Bandwidth Queue":  PRIORITY_STYLE["Normal Priority"],
+    "Low Bandwidth Queue":      PRIORITY_STYLE["Low Priority"],
+  };
 
   const API_BASE = `http://${window.location.hostname}:5000/api`;
 
@@ -1024,6 +1085,192 @@ export default function SmartBandwidthAllocator() {
     }
   };
 
+  function parseTrafficLog(raw) {
+    console.log('[TrafficLog] Raw text length:', (raw || '').length);
+    const blocks = raw.split('============= END ===========');
+    console.log('[TrafficLog] Blocks found:', blocks.length);
+    const dayMap = {};
+    const ipMap = {};
+    let parsedRecords = 0;
+
+    blocks.forEach(block => {
+      if (!block.trim()) return;
+      let currentTime = null, dateStr = null;
+      block.trim().split('\n').forEach(rawLine => {
+        const l = rawLine.trim();
+        if (!l) return;
+        if (l.startsWith('Current Time:')) {
+          const rawTs = l.substring(13).trim();
+          dateStr = rawTs.split(' ')[0];
+          // Normalize to 15-min boundary so keys match buildDeviceHistoryPoints
+          const timePart = rawTs.split(' ')[1] || '';
+          const tParts = timePart.split(':');
+          const hh = (tParts[0] || '00').padStart(2, '0');
+          const mm = String(Math.floor(parseInt(tParts[1] || '0', 10) / 15) * 15).padStart(2, '0');
+          currentTime = `${dateStr} ${hh}:${mm}:00`;
+          return;
+        }
+        if (l.startsWith('====') || l.startsWith('Protocol')) return;
+        const parts = l.split(',');
+        if (parts.length < 5 || !currentTime) return;
+        const proto = parts[0].trim();
+        const ip   = (parts[1] || '').trim();
+        const mac  = (parts[2] || '').trim().toLowerCase();
+        const tx   = parseInt(parts[3]) || 0;
+        const rx   = parseInt(parts[4]) || 0;
+        if (!mac || mac === '00:00:00:00:00:00' || mac === '00:00:00:ff:ff:00') return;
+        if (!ip  || ip  === '0.0.0.0' || ip === '127.0.0.1') return;
+
+        // Index by MAC
+        if (!dayMap[dateStr])              dayMap[dateStr] = {};
+        if (!dayMap[dateStr][mac])         dayMap[dateStr][mac] = {};
+        if (!dayMap[dateStr][mac][currentTime]) dayMap[dateStr][mac][currentTime] = { tx: 0, rx: 0, apps: [], appStats: {} };
+        dayMap[dateStr][mac][currentTime].tx += tx;
+        dayMap[dateStr][mac][currentTime].rx += rx;
+        if (proto && !dayMap[dateStr][mac][currentTime].apps.includes(proto))
+          dayMap[dateStr][mac][currentTime].apps.push(proto);
+        if (proto) {
+          if (!dayMap[dateStr][mac][currentTime].appStats[proto])
+            dayMap[dateStr][mac][currentTime].appStats[proto] = { tx: 0, rx: 0 };
+          dayMap[dateStr][mac][currentTime].appStats[proto].tx += tx;
+          dayMap[dateStr][mac][currentTime].appStats[proto].rx += rx;
+        }
+
+        // Index by IP (fallback when MAC is unavailable)
+        if (!ipMap[dateStr])             ipMap[dateStr] = {};
+        if (!ipMap[dateStr][ip])         ipMap[dateStr][ip] = {};
+        if (!ipMap[dateStr][ip][currentTime]) ipMap[dateStr][ip][currentTime] = { tx: 0, rx: 0, apps: [], appStats: {} };
+        ipMap[dateStr][ip][currentTime].tx += tx;
+        ipMap[dateStr][ip][currentTime].rx += rx;
+        if (proto && !ipMap[dateStr][ip][currentTime].apps.includes(proto))
+          ipMap[dateStr][ip][currentTime].apps.push(proto);
+        if (proto) {
+          if (!ipMap[dateStr][ip][currentTime].appStats[proto])
+            ipMap[dateStr][ip][currentTime].appStats[proto] = { tx: 0, rx: 0 };
+          ipMap[dateStr][ip][currentTime].appStats[proto].tx += tx;
+          ipMap[dateStr][ip][currentTime].appStats[proto].rx += rx;
+        }
+
+        parsedRecords++;
+      });
+    });
+
+    const day1 = Object.keys(dayMap).sort()[0] || null;
+    console.log('[TrafficLog] Records parsed:', parsedRecords, '| Day1:', day1,
+      '| MACs on day1:', day1 ? Object.keys(dayMap[day1] || {}).length : 0,
+      '| IPs on day1:', day1 ? Object.keys(ipMap[day1] || {}).length : 0);
+    return { dayMap, ipMap, day1 };
+  }
+
+  function buildDeviceHistoryPoints(mac, ip, targetDate, { dayMap, ipMap, day1 }) {
+    const availDates = Object.keys(dayMap).sort();
+    console.log('[DeviceHistory] Building points — mac:', mac, '| ip:', ip);
+    console.log('[DeviceHistory] Target date (today-7d):', targetDate, '| Available dates:', availDates);
+
+    if (availDates.length === 0) {
+      console.warn('[DeviceHistory] No dates found in traffic log — log may be empty');
+      setDeviceHistoryPoints([]);
+      setHistoryUsedDate(null);
+      return;
+    }
+
+    // Select the date to display: prefer exact match on targetDate, else closest older date, else day1
+    let useDate = null;
+    if (targetDate && dayMap[targetDate]) {
+      useDate = targetDate;
+      console.log('[DeviceHistory] Exact match for target date:', useDate);
+    } else {
+      // Find closest date that is <= targetDate (historical, not future)
+      const older = targetDate ? availDates.filter(d => d <= targetDate) : [];
+      if (older.length > 0) {
+        useDate = older[older.length - 1]; // most recent date that is still <= target
+        console.log('[DeviceHistory] No exact match — using closest older date:', useDate, '(target was', targetDate + ')');
+      } else {
+        useDate = day1; // fallback: earliest available
+        console.log('[DeviceHistory] No older dates available — fallback to earliest:', useDate);
+      }
+    }
+
+    setHistoryUsedDate(useDate);
+
+    const macNorm = (mac || '').toLowerCase();
+    let deviceData = (dayMap[useDate] || {})[macNorm] || {};
+    console.log('[DeviceHistory] MAC lookup on', useDate, ':', macNorm, '→', Object.keys(deviceData).length, 'slots');
+
+    if (Object.keys(deviceData).length === 0 && ip && (ipMap?.[useDate] || {})[ip]) {
+      console.log('[DeviceHistory] MAC empty — falling back to IP lookup:', ip);
+      deviceData = ipMap[useDate][ip];
+      console.log('[DeviceHistory] IP lookup slots:', Object.keys(deviceData).length);
+    }
+
+    const points = [];
+    for (let h = 0; h < 24; h++) {
+      for (let m = 0; m < 60; m += 15) {
+        const ts = `${useDate} ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`;
+        const slot = deviceData[ts] || { tx: 0, rx: 0, apps: [], appStats: {} };
+        points.push({
+          time: `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`,
+          timestamp: ts,
+          tx: slot.tx,
+          rx: slot.rx,
+          total: slot.tx + slot.rx,
+          apps: slot.apps,
+          appStats: slot.appStats || {},
+        });
+      }
+    }
+    const nonZero = points.filter(p => p.total > 0).length;
+    console.log('[DeviceHistory] Points: 96 total | Non-zero:', nonZero, '| Date used:', useDate);
+    setDeviceHistoryPoints(points);
+  }
+
+  async function openDeviceHistory(mac, name, ip) {
+    // Compute target date: exactly 7 days before today (UTC)
+    const nowUtc = new Date();
+    const sevenDaysAgo = new Date(Date.UTC(nowUtc.getUTCFullYear(), nowUtc.getUTCMonth(), nowUtc.getUTCDate()) - 7 * 24 * 60 * 60 * 1000);
+    const targetDate = `${sevenDaysAgo.getUTCFullYear()}-${String(sevenDaysAgo.getUTCMonth() + 1).padStart(2, '0')}-${String(sevenDaysAgo.getUTCDate()).padStart(2, '0')}`;
+
+    console.log('[DeviceHistory] Opening for device:', name, '| mac:', mac || '(none)', '| ip:', ip || '(none)', '| targetDate:', targetDate);
+    setHistorySelectedDevice({ mac, name, ip });
+    setHistoryUsedDate(null);
+    setShowDeviceHistoryModal(true);
+    setHistoryTooltip(null);
+    setDeviceHistoryPoints([]);
+
+    // Only use cache if it actually has data (day1 is non-null means log had records)
+    if (trafficCacheRef.current?.day1) {
+      console.log('[DeviceHistory] Using cached traffic data (day1:', trafficCacheRef.current.day1, ')');
+      buildDeviceHistoryPoints(mac, ip, targetDate, trafficCacheRef.current);
+      return;
+    }
+
+    setIsFetchingHistory(true);
+    try {
+      console.log('[DeviceHistory] >>> Fetching GET /api/smart-bandwidth/traffic ...');
+      const response = await fetch(`${API_BASE}/smart-bandwidth/traffic`);
+      const raw = response.ok ? await response.text() : "";
+      console.log('[DeviceHistory] API status:', response.status, '| Response length:', (raw || '').length, 'bytes');
+      if (!raw || !raw.trim()) {
+        console.warn('[DeviceHistory] Traffic API returned empty body. Verify the log file exists on the gateway.');
+        setDeviceHistoryPoints([]);
+        return;
+      }
+      const parsed = parseTrafficLog(raw);
+      // Only persist cache when the response has actual records — prevents truthy-empty-object blocking re-fetches
+      if (parsed.day1) {
+        trafficCacheRef.current = parsed;
+        console.log('[DeviceHistory] Cache populated. Available dates:', Object.keys(parsed.dayMap).sort());
+      } else {
+        console.warn('[DeviceHistory] Parsed log had no dated records. Cache not stored — will retry on next open.');
+      }
+      buildDeviceHistoryPoints(mac, ip, targetDate, parsed);
+    } catch (e) {
+      console.error('[DeviceHistory] Fetch error:', e);
+    } finally {
+      setIsFetchingHistory(false);
+    }
+  }
+
   // Poll active hosts every 3 seconds; notify when a client transitions to active
   useEffect(() => {
     if (!enabled) return;
@@ -1054,7 +1301,7 @@ export default function SmartBandwidthAllocator() {
             toastRef.current?.show({
               severity: 'warn',
               summary: 'New Device Connected',
-              detail: `Guest: ${host.name} got connected! Allocating Default Bandwidth Queue`,
+              detail: `Guest: ${host.name} got connected! Allocating Normal Queue`,
               life: 8000
             });
           }
@@ -1073,6 +1320,23 @@ export default function SmartBandwidthAllocator() {
       clearInterval(interval);
     };
   }, [API_BASE, enabled]);
+
+  // Detect pipeline overflow: switch to conveyor belt when capsules exceed container width
+  useLayoutEffect(() => {
+    const next = {};
+    Object.keys(pipeContainerRef.current).forEach(tier => {
+      const container = pipeContainerRef.current[tier];
+      const inner     = pipeInnerRef.current[tier];
+      if (container && inner) {
+        next[tier] = inner.scrollWidth > container.clientWidth + 4;
+      }
+    });
+    setPipeOverflow(prev => {
+      const same = Object.keys(next).length === Object.keys(prev).length &&
+        Object.keys(next).every(k => next[k] === prev[k]);
+      return same ? prev : next;
+    });
+  }, [activeHosts, qosClassifications]);
 
   // Traffic data disabled - kept for future use
   // const activeData = allTrafficData[latestBlockTs] || { traffic: [], timeStr: "" };
@@ -1154,78 +1418,50 @@ export default function SmartBandwidthAllocator() {
   });
 
   return (
-    <div style={{ fontFamily:"system-ui,-apple-system,sans-serif", background:"#f8fafc", minHeight:"100vh" }}>
+    <div style={{ fontFamily:"system-ui,-apple-system,sans-serif", background: T.bg, minHeight:"100vh", color: T.textPrimary }}>
       <style>{`
         @keyframes blink  { 0%,100%{opacity:1} 50%{opacity:0.3} }
         @keyframes slidein{ from{opacity:0;transform:translateY(-10px)} to{opacity:1;transform:translateY(0)} }
         .live-dot   { animation: blink 2s infinite; }
         .fade-in    { animation: slidein 0.3s ease both; }
-        .hour-btn:hover:not(.hour-active) { background: #e8f5f0 !important; color:#037A53 !important; }
         .tab-btn { transition: all 0.15s; }
         .stage-pill { transition: border-color 0.2s, box-shadow 0.2s; }
-        .stage-pill:hover { box-shadow: 0 2px 8px rgba(3,122,83,0.12); }
         .p-toast { width: auto; min-width: 200px; max-width: 400px; }
         .p-toast-message { margin: 0 0 0 1rem; }
         .p-toast-summary { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
         .p-toast-detail { font-size: 13px; margin: 0; }
         .p-toast-icon { display: none; }
-        .p-toast .p-toast-message.p-toast-message-warn {
-          background: rgba(217, 119, 6, 0.1);
-          border: solid #d97706;
-          border-width: 0 0 0 6px;
-          color: #d97706;
-        }
-        .p-toast .p-toast-message.p-toast-message-success {
-          background: rgba(3, 122, 83, 0.1);
-          border: solid #037A53;
-          border-width: 0 0 0 6px;
-          color: #037A53;
-        }
-        .p-toast .p-toast-message.p-toast-message-error {
-          background: rgba(220, 38, 38, 0.1);
-          border: solid #dc2626;
-          border-width: 0 0 0 6px;
-          color: #dc2626;
-        }
         @keyframes floatChip0 { 0%,100%{transform:translateY(0px)} 50%{transform:translateY(-7px)} }
         @keyframes floatChip1 { 0%,100%{transform:translateY(0px)} 50%{transform:translateY(-9px)} }
         @keyframes floatChip2 { 0%,100%{transform:translateY(-2px)} 50%{transform:translateY(5px)} }
         @keyframes floatChip3 { 0%,100%{transform:translateY(0px)} 50%{transform:translateY(-5px)} }
         @keyframes pipeFlow   { from{background-position-x:0} to{background-position-x:56px} }
         @keyframes shimmer    { 0%,100%{transform:translateX(-100%)} 50%{transform:translateX(100%)} }
+        @keyframes conveyorBelt { from { transform:translateX(-50%); } to { transform:translateX(0); } }
       `}</style>
 
       <Toast ref={toastRef} position="top-right" />
 
       {/* ── Header ── */}
-      <div style={{ background:"#fff", borderBottom:"1px solid #e5e7eb", padding:"13px 24px",
-        display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+      <div style={{ background: T.cardBg, borderBottom: `1px solid ${T.border}`, padding:"13px 24px", margin: "18px 20px 0px 20px",
+      display:"flex", alignItems:"center", justifyContent:"space-between" }}>
         <div style={{ display:"flex", alignItems:"center", gap:12 }}>
-          <div style={{ width:36, height:36, borderRadius:8, background:"#e8f5f0",
+          <div style={{ width:36, height:36, borderRadius:8, background: T.successBg,
+            border: `1px solid ${T.success}30`,
             display:"flex", alignItems:"center", justifyContent:"center" }}>
             <WaveIcon />
           </div>
           <div>
-            <div style={{ fontWeight:700, fontSize:16, color:"#111827" }}>Smart Bandwidth Allocator</div>
-            {/* <div style={{ fontSize:11, color:"#9ca3af", fontFamily:"monospace" }}>
-              Device.AIServices.BandwidthPrediction
-            </div> */}
+            <div style={{ fontWeight:700, fontSize:16, color: T.textPrimary }}>Smart Bandwidth Allocator</div>
           </div>
         </div>
         <div style={{ display:"flex", alignItems:"center", gap:20 }}>
-          {/* {enabled && !loading && (
-            <div style={{ display:"flex", alignItems:"center", gap:6, padding:"4px 10px",
-              background:"#f0fdf4", border:"1px solid #86efac", borderRadius:6 }}>
-              <div className="live-dot" style={{ width:6, height:6, borderRadius:"50%", background:PRIMARY }} />
-              <span style={{ fontSize:12, fontWeight:600, color:"#166534" }}>{activeQosCount} QoS rules active</span>
-            </div>
-          )} */}
           <div style={{ display:"flex", alignItems:"center", gap:8 }}>
             {enabled === null ? (
-              <span style={{ fontSize:13, fontWeight:500, color:MUTED }}>Fetching Status..</span>
+              <span style={{ fontSize:13, fontWeight:500, color: MUTED }}>Fetching Status..</span>
             ) : (
               <>
-                <span style={{ fontSize:13, fontWeight:500, color:enabled?PRIMARY:MUTED }}>
+                <span style={{ fontSize:13, fontWeight:500, color: enabled ? PRIMARY : MUTED }}>
                   {enabled ? "Enabled" : "Disabled"}
                 </span>
                 <ToggleSwitch on={enabled} onToggle={handleToggle} />
@@ -1238,16 +1474,16 @@ export default function SmartBandwidthAllocator() {
       {/* ── Dynamic Main State ── */}
       {loading || enabled === null ? (
         <div style={{ display:"flex", justifyContent:"center", alignItems:"center", height:"60vh" }}>
-          <img src={loadingGif} alt="Loading" style={{ width:64, height:64, opacity:0.8 }} />
+          <PropagateLoader label="Loading..." />
         </div>
       ) : !enabled ? (
         <div style={{ display:"flex", justifyContent:"center", alignItems:"center",
           height:"60vh", flexDirection:"column", gap:16 }}>
-          <div style={{ background:"#fff", padding:"30px 40px", borderRadius:12,
-            border:"1px solid #e5e7eb", textAlign:"center",
-            boxShadow:"0 4px 6px -1px rgba(0,0,0,0.05)" }}>
-            <h2 style={{ margin:"16px 0 8px", color:"#111827", fontSize:20 }}>Service Disabled</h2>
-            <p style={{ margin:0, color:MUTED, fontSize:14 }}>
+          <div style={{ background: T.cardBg, padding:"30px 40px", borderRadius:12,
+            border: `1px solid ${T.border}`, textAlign:"center",
+            boxShadow: T.shadow }}>
+            <h2 style={{ margin:"16px 0 8px", color: T.textPrimary, fontSize:20 }}>Service Disabled</h2>
+            <p style={{ margin:0, color: MUTED, fontSize:14 }}>
               Enable the Smart Bandwidth Allocator to view predictions and QoS enforcement
             </p>
           </div>
@@ -1259,44 +1495,35 @@ export default function SmartBandwidthAllocator() {
         {/* ── Stat Cards ── */}
         <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:12, marginBottom:16 }}>
           {[
-            { label:"Clients Connected",    value:activeHosts.length,         accent:PRIMARY   },
-            { label:"Predicted Active Allocations",   value:activeAllocationsTotal, tip:`${activeAllocationsClassified} Predicted · ${activeAllocationsGuests} Guests`, accent:"#111827" },
-            { label:"Download Rate", value:`${downloadRateMbps.toFixed(2)} Mbps`, accent:WARNING  },
-            { label:"Upload Rate",   value:`${uploadRateMbps.toFixed(2)} Mbps`,   accent:INFO     },
+            { label:"Clients Connected",            value:activeHosts.length,            accent: PRIMARY,        Icon: Users,    iconBg: T.successBg  },
+            { label:"Enforced Allocations", value:activeAllocationsTotal, tip:`${activeAllocationsClassified} Predicted · ${activeAllocationsGuests} Guests`, accent: T.textPrimary, Icon: Layers,   iconBg: T.accentMuted },
+            { label:"Download Rate",                value:`${downloadRateMbps.toFixed(2)} Mbps`, accent: WARNING, Icon: Download, iconBg: T.warningBg  },
+            { label:"Upload Rate",                  value:`${uploadRateMbps.toFixed(2)} Mbps`,   accent: INFO,    Icon: Upload,   iconBg: T.infoBg     },
           ].map((s, i) => (
             <div key={i}
-              style={{ background:"#fff", borderRadius:10, padding:"14px 16px",
-                border:"1px solid #e5e7eb", position:"relative",
-                cursor: s.tip ? "default" : undefined }}
-              onMouseEnter={() => s.tip && setAllocCardHovered(true)}
-              onMouseLeave={() => setAllocCardHovered(false)}
+              style={{ background: T.cardBg, borderRadius:10, padding:"14px 16px",
+                border: `1px solid ${T.border}`, boxShadow: T.shadow, position:"relative",
+                transition:"box-shadow 0.2s" }}
+              onMouseEnter={e => { e.currentTarget.style.boxShadow = T.shadowHover; }}
+              onMouseLeave={e => { e.currentTarget.style.boxShadow = T.shadow; }}
             >
-              <div style={{ fontSize:12, color:MUTED, marginBottom:6, textTransform:"uppercase",
-                letterSpacing:"0.04em" }}>{s.label}</div>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:8 }}>
+                <div style={{ fontSize:15, color: MUTED, textTransform:"uppercase", letterSpacing:"0.04em" }}>
+                  {s.label}
+                </div>
+                <div style={{
+                  width:40, height:40, borderRadius:8, background: s.iconBg,
+                  display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0,
+                }}>
+                  <s.Icon size={20} color={s.accent} />
+                </div>
+              </div>
               <div style={{ fontSize:30, fontWeight:700, color:s.accent, lineHeight:1, marginBottom:4 }}>
                 {s.value}
               </div>
-              {s.tip && allocCardHovered && (
-                <div style={{
-                  position:"absolute", bottom:"calc(100% + 6px)", left:"50%",
-                  transform:"translateX(-50%)",
-                  background:"rgba(255,255,255,0.82)",
-                  backdropFilter:"blur(10px)",
-                  WebkitBackdropFilter:"blur(10px)",
-                  color:"#374151", borderRadius:6,
-                  padding:"5px 10px", fontSize:12, fontWeight:500,
-                  whiteSpace:"nowrap", zIndex:20,
-                  border:"1px solid rgba(0,0,0,0.08)",
-                  boxShadow:"0 4px 14px rgba(0,0,0,0.12)",
-                  pointerEvents:"none",
-                }}>
+              {s.tip && (
+                <div style={{ fontSize:12, color: MUTED, fontWeight:500, marginTop:4, letterSpacing:"0.02em" }}>
                   {s.tip}
-                  <div style={{
-                    position:"absolute", top:"100%", left:"50%", transform:"translateX(-50%)",
-                    width:0, height:0,
-                    borderLeft:"5px solid transparent", borderRight:"5px solid transparent",
-                    borderTop:"5px solid rgba(255,255,255,0.82)",
-                  }} />
                 </div>
               )}
             </div>
@@ -1310,24 +1537,24 @@ export default function SmartBandwidthAllocator() {
           <div style={{ display:"flex", flexDirection:"column", minWidth:0 }}>
 
             {/* Left: QoS Allocations Table */}
-            <div style={{ background:"#fff", borderRadius:10, border:"1px solid #e5e7eb", overflow:"hidden", display:"flex", flexDirection:"column", flex:1, maxHeight: 600 }}>
-              <div style={{ padding:"14px 16px", borderBottom:"1px solid #e5e7eb",
+            <div style={{ background: T.cardBg, borderRadius:10, border: `1px solid ${T.border}`, boxShadow: T.shadow, overflow:"hidden", display:"flex", flexDirection:"column", flex:1, maxHeight: 550 }}>
+              <div style={{ padding:"14px 16px", borderBottom: `1px solid ${T.border}`,
                 display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                <div style={{ fontWeight:600, fontSize:16, color:"#111827" }}>QoS Allocations</div>
+                <div style={{ fontWeight:600, fontSize:16, color: T.textPrimary }}>QoS Allocations</div>
               </div>
 
               <div style={{ overflowY:"auto", flex: 1 }}>
-                <table style={{ width:"100%", borderCollapse:"collapse", fontSize:14, tableLayout:"fixed" }}>
+                <table style={{ width:"100%", borderCollapse:"collapse", fontSize:15, tableLayout:"fixed" }}>
                   <colgroup>
-                    <col style={{ width:"42%" }} />
-                    <col style={{ width:"25%" }} />
+                    <col style={{ width:"38%" }} />
+                    <col style={{ width:"29%" }} />
                     <col style={{ width:"33%" }} />
                   </colgroup>
                   <thead>
-                    <tr style={{ background:"#f9fafb", borderBottom:"1px solid #e5e7eb" }}>
+                    <tr style={{ background: T.elevated, borderBottom: `1px solid ${T.border}` }}>
                       {["Client","Applications","Queue"].map(h => (
-                        <th key={h} style={{ padding:"9px 10px", textAlign:"left",
-                          fontWeight:600, color:MUTED, fontSize:14, letterSpacing:"0.05em" }}>{h}</th>
+                        <th key={h} style={{ padding:"9px 10px", textAlign:"center",
+                          fontWeight:600, color: MUTED, fontSize:14, letterSpacing:"0.05em" }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
@@ -1355,12 +1582,17 @@ export default function SmartBandwidthAllocator() {
                         return 0;
                       };
 
+                      // Build IP → MAC lookup from activeHosts
+                      const ipToMac = {};
+                      activeHosts.forEach(h => { if (h.ip && h.mac) ipToMac[h.ip] = h.mac; });
+
                       // Group by device
                       const deviceGroupMap = {};
                       activeClassifications.forEach(cls => {
                         const device = cls.deviceName || "Unknown";
                         if (!deviceGroupMap[device]) {
-                          deviceGroupMap[device] = { device, ip: cls.destIp || "", entries: [] };
+                          const mac = ipToMac[cls.destIp] || '';
+                          deviceGroupMap[device] = { device, ip: cls.destIp || "", mac, entries: [] };
                         }
                         deviceGroupMap[device].entries.push({
                           app: cls.dpiProtocol || "-",
@@ -1379,7 +1611,7 @@ export default function SmartBandwidthAllocator() {
                       if (groups.length === 0 && guestHosts.length === 0) {
                         return (
                           <tr>
-                            <td colSpan={3} style={{ padding:"40px 0", textAlign:"center", color:MUTED, fontSize:14 }}>
+                            <td colSpan={3} style={{ padding:"40px 0", textAlign:"center", color: MUTED, fontSize:14 }}>
                               No QoS Allocations Configured !
                             </td>
                           </tr>
@@ -1388,38 +1620,67 @@ export default function SmartBandwidthAllocator() {
 
                       return (
                         <>
-                          {groups.flatMap(({ device, ip, entries }) =>
+                          {groups.flatMap(({ device, ip, mac, entries }) =>
                             entries.map((entry, i) => {
                               const ps = QUEUE_PS[entry.queue] || PRIORITY_STYLE["Normal Priority"];
                               return (
                                 <tr key={`${device}-${i}`} className="fade-in"
-                                  style={{ borderBottom: i === entries.length - 1 ? "1.5px solid #e5e7eb" : "1px solid #f9fafb" }}>
+                                  style={{ borderBottom: i === entries.length - 1 ? `1.5px solid ${T.border}` : `1px solid ${T.elevated}` }}>
                                   {i === 0 && (
                                     <td rowSpan={entries.length} style={{
-                                      padding:"9px 10px", fontSize:17,
-                                      color:"#111827", fontWeight:600, verticalAlign:"middle",
-                                      borderRight:"1px solid #f3f4f6",
+                                      padding:"13px 10px", fontSize:17,
+                                      color: T.textPrimary, fontWeight:600, verticalAlign:"middle",
+                                      textAlign:"center",
+                                      borderRight: `1px solid ${T.border}`, letterSpacing:"0.03em",
                                     }}>
-                                      <div>{device}</div>
+                                      <div
+                                        style={{ cursor:"pointer", color: PRIMARY, textDecoration:"underline dotted" }}
+                                        onClick={() => openDeviceHistory(mac, device, ip)}
+                                      >{device}</div>
                                       {(() => { const r = hostRateByKey[device] || hostRateByKey[ip] || { rx:0, tx:0 }; return (
-                                        <div style={{ display:"flex", gap:8, marginTop:3 }}>
-                                          <span style={{ fontSize:12, fontWeight:500 }}>(↑ {fmtMbps(r.tx)} Mb/s</span>
-                                          <span style={{ fontSize:12, fontWeight:500 }}>↓ {fmtMbps(r.rx)} Mb/s)</span>
+                                        <div style={{ display:"flex", gap:8, marginTop:3, justifyContent:"center" }}>
+                                          <span style={{ fontSize:12, fontWeight:500, color: T.textSec }}>(↑ {fmtMbps(r.tx)} Mb/s</span>
+                                          <span style={{ fontSize:12, fontWeight:500, color: T.textSec }}>↓ {fmtMbps(r.rx)} Mb/s)</span>
                                         </div>
                                       ); })()}
                                     </td>
                                   )}
-                                  <td style={{ padding:"9px 10px" }}>
-                                    <span style={{ fontSize:14, fontWeight:600, padding:"2px 8px",
-                                      borderRadius:4, background:"#f3f4f6", color:"#111827" }}>
-                                      {entry.app}
-                                    </span>
+                                  <td style={{ padding:"13px 10px", letterSpacing:"0.03em", textAlign:"center" }}>
+                                    {(() => {
+                                      const logoKey = (entry.app || "").toLowerCase();
+                                      const logoSrc = APP_LOGOS[logoKey];
+                                      return (
+                                        <span style={{ fontSize:15, fontWeight:600, padding:"2px 8px",
+                                          borderRadius:4, background: T.elevated, color: T.textPrimary,
+                                          display:"inline-flex", alignItems:"center", gap:6 }}>
+                                          {logoSrc ? (
+                                            <img
+                                              src={logoSrc}
+                                              alt=""
+                                              style={{ width:20, height:20, objectFit:"contain",
+                                                flexShrink:0, borderRadius:3 }}
+                                              onError={e => { e.currentTarget.style.display = "none"; }}
+                                            />
+                                          ) : (
+                                            <span style={{ width:20, height:20, borderRadius:3,
+                                              background: T.border, display:"inline-flex",
+                                              alignItems:"center", justifyContent:"center",
+                                              fontSize:10, color: T.textMuted, flexShrink:0,
+                                              fontWeight:700 }}>
+                                              {(entry.app || "?").charAt(0).toUpperCase()}
+                                            </span>
+                                          )}
+                                          {toTitleCase(entry.app)}
+                                        </span>
+                                      );
+                                    })()}
                                   </td>
-                                  <td style={{ padding:"9px 10px" }}>
-                                    <span style={{ fontSize:13, padding:"2px 8px", borderRadius:4,
-                                      fontWeight:600, background:ps.bg, color:ps.color,
+                                  <td style={{ padding:"13px 10px", letterSpacing:"0.03em", textAlign:"center" }}>
+                                    <span style={{ fontSize:15, padding:"2px 8px", borderRadius:4,
+                                      fontWeight:600, background:ps.bg,
+                                      color: (isDark && entry.queue === "Low Bandwidth Queue") ? "#ffffff" : ps.color,
                                       border:`1px solid ${ps.border}` }}>
-                                      {entry.queue}
+                                      {entry.queue.replace(' Bandwidth', '').replace('Default', 'Normal').replace(/\bLow\b/, 'Lowest')}
                                     </span>
                                   </td>
                                 </tr>
@@ -1429,28 +1690,28 @@ export default function SmartBandwidthAllocator() {
                           {guestHosts.map((host, i) => {
                             const guestPs = QUEUE_PS["Default Bandwidth Queue"];
                             return (
-                              <tr key={`guest-${i}`} style={{ borderBottom:"1px solid #f9fafb" }}>
-                                <td style={{ padding:"9px 10px", fontSize:17,
-                                  color:"#111827", fontWeight:600, borderRight:"1px solid #f3f4f6" }}>
-                                  <div>{host.name} <span style={{ fontSize:13, color:"#6b7280", marginLeft:6 }}>(Guest)</span></div>
+                              <tr key={`guest-${i}`} style={{ borderBottom: `1px solid ${T.elevated}` }}>
+                                <td style={{ padding:"13px 10px", fontSize:17,
+                                  color: T.textPrimary, fontWeight:600, borderRight: `1px solid ${T.border}`, letterSpacing:"0.03em", textAlign:"center" }}>
+                                  <div>{host.name} <span style={{ fontSize:13, color: MUTED, marginLeft:6 }}>(Guest)</span></div>
                                   {(() => { const r = hostRateByKey[host.name] || hostRateByKey[host.ip] || { rx:0, tx:0 }; return (
-                                    <div style={{ display:"flex", gap:8, marginTop:3 }}>
-                                      <span style={{ fontSize:12, fontWeight:500 }}>(↑ {fmtMbps(r.tx)} Mb/s</span>
-                                      <span style={{ fontSize:12, fontWeight:500 }}>↓ {fmtMbps(r.rx)} Mb/s)</span>
+                                    <div style={{ display:"flex", gap:8, marginTop:3, justifyContent:"center" }}>
+                                      <span style={{ fontSize:12, fontWeight:500, color: T.textSec }}>(↑ {fmtMbps(r.tx)} Mb/s</span>
+                                      <span style={{ fontSize:12, fontWeight:500, color: T.textSec }}>↓ {fmtMbps(r.rx)} Mb/s)</span>
                                     </div>
                                   ); })()}
                                 </td>
-                                <td style={{ padding:"9px 10px" }}>
-                                  <span style={{ fontSize:14, fontWeight:600, padding:"2px 8px",
-                                    borderRadius:4, background:"#f3f4f6", color:"#111827" }}>
+                                <td style={{ padding:"13px 10px", letterSpacing:"0.03em", textAlign:"center" }}>
+                                  <span style={{ fontSize:15, fontWeight:600, padding:"2px 8px",
+                                    borderRadius:4, background: T.elevated, color: T.textPrimary }}>
                                     -
                                   </span>
                                 </td>
-                                <td style={{ padding:"9px 10px" }}>
-                                  <span style={{ fontSize:13, padding:"2px 8px", borderRadius:4,
+                                <td style={{ padding:"13px 10px", letterSpacing:"0.03em", textAlign:"center" }}>
+                                  <span style={{ fontSize:15, padding:"2px 8px", borderRadius:4,
                                     fontWeight:600, background:guestPs.bg, color:guestPs.color,
                                     border:`1px solid ${guestPs.border}` }}>
-                                    Default Bandwidth Queue
+                                    Normal Queue
                                   </span>
                                 </td>
                               </tr>
@@ -1564,17 +1825,17 @@ export default function SmartBandwidthAllocator() {
 
 
             {/* Hourly Queue Configuration */}
-            <div style={{ background:"#fff", borderRadius:10, border:"1px solid #e5e7eb", padding:"13px 16px" }}>
+            <div style={{ background: T.cardBg, borderRadius:10, border: `1px solid ${T.border}`, boxShadow: T.shadow, padding:"13px 16px" }}>
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
                 <div>
-                  <div style={{ fontWeight:600, fontSize:15, color:"#111827" }}>Queue Timeline</div>
-                  <div style={{ fontSize:11, color:MUTED, marginTop:2 }}>±2 Hour Bandwidth Configurations</div>
+                  <div style={{ fontWeight:600, fontSize:15, color: T.textPrimary }}>Allocation Timeline</div>
+                  <div style={{ fontSize:11, color: MUTED, marginTop:2 }}>24 Hours Bandwidth Configurations</div>
                 </div>
                 <button
                   onClick={openQosChart}
                   style={{
                     padding:"4px 10px", fontSize:12, fontWeight:500, borderRadius:4,
-                    border:"1px solid #e5e7eb", background:"#fff", color:PRIMARY, cursor:"pointer"
+                    border: `1px solid ${T.border}`, background: T.elevated, color: PRIMARY, cursor:"pointer"
                   }}
                 >
                   View Chart
@@ -1582,27 +1843,27 @@ export default function SmartBandwidthAllocator() {
               </div>
               <div style={{ display:"flex", gap:10, marginTop:10, flexWrap:"wrap" }}>
                 {[
-                  { label:"High",     color:DANGER  },
-                  { label:"Moderate", color:WARNING },
-                  { label:"Default",  color:INFO    },
-                  { label:"Low",      color:MUTED   },
+                  { label:"High",     color: DANGER  },
+                  { label:"Moderate", color: WARNING },
+                  { label:"Normal",   color: INFO    },
+                  { label:"Lowest",   color: MUTED   },
                 ].map(q => (
                   <div key={q.label} style={{ display:"flex", alignItems:"center", gap:4, fontSize:11 }}>
                     <div style={{ width:8, height:8, borderRadius:2, background:q.color }} />
-                    <span style={{ color:"#6b7280" }}>{q.label}</span>
+                    <span style={{ color: T.textMuted }}>{q.label}</span>
                   </div>
                 ))}
               </div>
             </div>
 
             {/* App Config (protocol tier configuration) */}
-            <div style={{ background:"#fff", borderRadius:10, border:"1px solid #e5e7eb", overflow:"hidden", height:200, display:"flex", flexDirection:"column" }}>
-              <div style={{ padding:"13px 16px", borderBottom:"1px solid #e5e7eb",
+            <div style={{ background: T.cardBg, borderRadius:10, border: `1px solid ${T.border}`, boxShadow: T.shadow, overflow:"hidden", height:200, display:"flex", flexDirection:"column" }}>
+              <div style={{ padding:"13px 16px", borderBottom: `1px solid ${T.border}`,
                 display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                <div style={{ fontWeight:600, fontSize:15, color:"#111827" }}>App Config</div>
+                <div style={{ fontWeight:600, fontSize:15, color: T.textPrimary }}>App Config</div>
                 <button onClick={() => { isEditingApp.current = true; setShowAppConfigModal(true); }} style={{
                   padding:"4px 10px", fontSize:12, fontWeight:500, borderRadius:4,
-                  border:"1px solid #e5e7eb", background:"#fff", color:PRIMARY, cursor:"pointer"
+                  border: `1px solid ${T.border}`, background: T.elevated, color: PRIMARY, cursor:"pointer"
                 }}>
                   Edit
                 </button>
@@ -1613,13 +1874,13 @@ export default function SmartBandwidthAllocator() {
                   <div key={tier.tier} style={{ marginBottom:12 }}>
                     <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:6 }}>
                       <div style={{ width:9, height:9, borderRadius:2, background:tier.color }} />
-                      <span style={{ fontSize:13, fontWeight:600, color:"#111827" }}>{tier.tier}</span>
+                      <span style={{ fontSize:13, fontWeight:600, color: T.textPrimary }}>{tier.tier.replace(/\bLow\b/, 'Lowest')}</span>
                     </div>
                     <div style={{ display:"flex", flexWrap:"wrap", gap:5, justifyContent:"flex-start" }}>
                       {tier.protos.map(p => (
                         <span key={p} style={{ fontSize:13, padding:"3px 6px", borderRadius:4,
-                          background:"#f3f4f6", border:"1px solid #e5e7eb",
-                          color:"#374151" }}>{p}</span>
+                          background: T.elevated, border: `1px solid ${T.border}`,
+                          color: T.textSec }}>{toTitleCase(p)}</span>
                       ))}
                     </div>
                   </div>
@@ -1628,15 +1889,15 @@ export default function SmartBandwidthAllocator() {
             </div>
 
             {/* Max Capacity Allocation */}
-            <div style={{ background:"#fff", borderRadius:10, border:"1px solid #e5e7eb", padding:"14px 16px", flex: 1 }}>
+            <div style={{ background: T.cardBg, borderRadius:10, border: `1px solid ${T.border}`, boxShadow: T.shadow, padding:"14px 16px", flex: 1 }}>
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
-                <div style={{ fontSize:13, fontWeight:600, color:MUTED, letterSpacing:"0.05em",
+                <div style={{ fontSize:13, fontWeight:600, color: MUTED, letterSpacing:"0.05em",
                   textTransform:"uppercase" }}>
                   Max Capacity Allocation · {maxCapacityStr}
                 </div>
                 <button onClick={() => { isEditingCapacityRef.current = true; setShowCapacityModal(true); }} style={{
                   padding:"4px 10px", fontSize:12, fontWeight:500, borderRadius:4,
-                  border:"1px solid #e5e7eb", background:"#fff", color:PRIMARY, cursor:"pointer"
+                  border: `1px solid ${T.border}`, background: T.elevated, color: PRIMARY, cursor:"pointer"
                 }}>
                   Edit
                 </button>
@@ -1644,12 +1905,12 @@ export default function SmartBandwidthAllocator() {
               {capacityInfo.map(c => (
                 <div key={c.tier} style={{ marginBottom:11 }}>
                   <div style={{ display:"flex", justifyContent:"space-between", marginBottom:4 }}>
-                    <span style={{ fontSize:13, color:"#374151", fontWeight:500 }}>{c.tier}</span>
+                    <span style={{ fontSize:13, color: T.textSec, fontWeight:500 }}>{c.tier.replace(' Bandwidth', '').replace('Default', 'Normal').replace(/\bLow\b/, 'Lowest')}</span>
                     <span style={{ fontSize:13, color:c.color, fontWeight:600 }}>
                       {c.mbps} Mbps &nbsp;({c.pct}%)
                     </span>
                   </div>
-                  <div style={{ height:6, background:"#f3f4f6", borderRadius:3, overflow:"hidden" }}>
+                  <div style={{ height:6, background: T.elevated, borderRadius:3, overflow:"hidden" }}>
                     <div style={{ height:"100%", width:`${c.pct}%`, background:c.color,
                       borderRadius:3, transition:"width 0.5s" }} />
                   </div>
@@ -1703,17 +1964,17 @@ export default function SmartBandwidthAllocator() {
         </div>
 
         {/* ── Bandwidth Queue Pipelines ── */}
-        <div style={{ background:"#fff", borderRadius:10, border:"1px solid #e5e7eb", padding:"20px 24px" }}>
+        <div style={{ background: T.cardBg, borderRadius:10, border: `1px solid ${T.border}`, boxShadow: T.shadow, padding:"20px 24px" }}>
           {/* Header */}
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
             <div>
-              <div style={{ fontWeight:600, fontSize:15, color:"#111827" }}>Bandwidth Queue Pipelines</div>
+              <div style={{ fontWeight:600, fontSize:15, color: T.textPrimary }}>Bandwidth Queue Pipelines</div>
             </div>
             <div style={{ display:"flex", gap:12, flexWrap:"wrap", justifyContent:"flex-end" }}>
               {capacityInfo.map(c => (
                 <div key={c.tier} style={{ display:"flex", alignItems:"center", gap:5, fontSize:13 }}>
                   <div style={{ width:10, height:10, borderRadius:3, background:c.color }} />
-                  <span style={{ color:"#374151", fontWeight:500 }}>{c.mbps} Mbps</span>
+                  <span style={{ color: T.textSec, fontWeight:500 }}>{c.mbps} Mbps</span>
                 </div>
               ))}
             </div>
@@ -1722,33 +1983,38 @@ export default function SmartBandwidthAllocator() {
           {/* Pipelines */}
           <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
             {pipelineQueues.map((pipe, qi) => {
-              const widthPct  = Math.max(pipe.mbps > 0 ? Math.round((pipe.mbps / maxPipelineMbps) * 100) : 12, 12);
-              const heightPx  = Math.max(64, 50 + widthPct * 0.4);
-              const animNames = ["floatChip0","floatChip1","floatChip2","floatChip3"];
+              const widthPct    = Math.max(pipe.mbps > 0 ? Math.round((pipe.mbps / maxPipelineMbps) * 100) : 12, 12);
+              const heightPx    = Math.max(72, 50 + widthPct * 0.4);
+              const animNames   = ["floatChip0","floatChip1","floatChip2","floatChip3"];
+              const isConveyor  = !!pipeOverflow[pipe.tier];
+              const conveyorDuration = Math.max(16, pipe.items.length * 10);
 
               return (
                 <div key={qi}>
                   {/* Row label */}
                   <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
                     <div style={{ width:11, height:11, borderRadius:3, background:pipe.color, flexShrink:0 }} />
-                    <span style={{ fontSize:14, fontWeight:600, color:"#374151" }}>{pipe.tier}</span>
+                    <span style={{ fontSize:14, fontWeight:600, color: T.textSec }}>{pipe.tier.replace('Default', 'Normal').replace(/\bLow\b/, 'Lowest')}</span>
                     <span style={{ fontSize:13, color:pipe.color, marginLeft:"auto", fontWeight:600 }}>
                       {pipe.mbps} Mbps · {pipe.pct}%
                     </span>
                   </div>
 
                   {/* The pipe */}
-                  <div style={{
-                    width: "100%",
-                    height: `${heightPx}px`,
-                    background: `linear-gradient(135deg, ${pipe.color}1a 0%, ${pipe.color}08 100%)`,
-                    border: `2px solid ${pipe.color}45`,
-                    borderLeft: `8px solid ${pipe.color}`,
-                    borderRight: `8px solid ${pipe.color}`,
-                    borderRadius: 0,
-                    position: "relative",
-                    overflow: "hidden",
-                  }}>
+                  <div
+                    ref={el => { pipeContainerRef.current[pipe.tier] = el; }}
+                    style={{
+                      width: "100%",
+                      height: `${heightPx}px`,
+                      background: `linear-gradient(135deg, ${pipe.color}1a 0%, ${pipe.color}08 100%)`,
+                      border: `2px solid ${pipe.color}45`,
+                      borderLeft: `8px solid ${pipe.color}`,
+                      borderRight: `8px solid ${pipe.color}`,
+                      borderRadius: 0,
+                      position: "relative",
+                      overflow: "hidden",
+                    }}
+                  >
                     {/* Animated flow stripes */}
                     <div style={{
                       position: "absolute", inset: 0, pointerEvents: "none",
@@ -1765,64 +2031,113 @@ export default function SmartBandwidthAllocator() {
                     }} />
 
                     {/* Client + App chain chips */}
-                    <div style={{
-                      position: "absolute", inset: 0,
-                      display: "flex", flexWrap: "wrap",
-                      alignContent: "center", gap: 8, padding: "8px 16px",
-                    }}>
+                    <div style={{ position:"absolute", inset:0, display:"flex", alignItems:"center", overflow:"hidden" }}>
                       {pipe.items.length === 0 ? (
-                        <span style={{ fontSize:11, color:`${pipe.color}60`, fontStyle:"italic" }}>
+                        <span style={{ padding:"0 16px", fontSize:11, color:`${pipe.color}60`, fontStyle:"italic" }}>
                           No active clients
                         </span>
-                      ) : pipe.items.map((item, ci) => (
-                        <div key={ci} style={{
-                          display: "flex", alignItems: "center", gap: 4,
-                          animationName: animNames[ci % 4],
-                          animationDuration: `${2.2 + (ci % 3) * 0.65}s`,
-                          animationTimingFunction: "ease-in-out",
-                          animationIterationCount: "infinite",
-                          animationDelay: `${ci * 0.3}s`,
+                      ) : isConveyor ? (
+                        /* ── Conveyor belt mode: two identical sets side-by-side, animated ── */
+                        <div style={{
+                          display: "flex", alignItems: "center",
+                          animation: `conveyorBelt ${conveyorDuration}s linear infinite`,
+                          willChange: "transform",
                         }}>
-                          {/* Device capsule */}
-                          <span style={{
-                            fontSize: 14, padding: "6px 16px",
-                            borderRadius: 20,
-                            background: "rgba(255,255,255,0.95)",
-                            border: `1.5px solid ${pipe.color}70`,
-                            // color: pipe.color,
-                            fontWeight: 700,
-                            whiteSpace: "nowrap",
-                            boxShadow: `0 2px 6px ${pipe.color}28`,
-                            display: "inline-flex", flexDirection: "column", alignItems: "center", gap: 2,
-                          }}>
-                            <span>{item.device}</span>
-                            {(() => { const r = hostRateByKey[item.device] || hostRateByKey[item.ip] || { rx:0, tx:0 }; return (
-                              <span style={{ fontSize: 11, fontWeight: 500, color: `${pipe.color}cc`, display: "flex", gap: 6 }}>
-                                <span>↑ {fmtMbps(r.tx)} Mb/s</span>
-                                <span>↓ {fmtMbps(r.rx)} Mb/s</span>
-                              </span>
-                            ); })()}
-                          </span>
-                          {/* App chain — only for QoS-allocated (non-guest) clients */}
-                          {!item.isGuest && item.apps.map((app, ai) => (
-                            <span key={ai} style={{ display:"flex", alignItems:"center", gap:4 }}>
-                              <span style={{ color:`${pipe.color}80`, fontSize:13, fontWeight:700, userSelect:"none", lineHeight:1, letterSpacing:2 }}>●●●</span>
-                              <span style={{
-                                fontSize: 14, padding: "6px 16px",
-                                borderRadius: 20,
-                                background: "rgba(255,255,255,0.88)",
-                                border: `1.5px solid ${pipe.color}55`,
-                                color: `${pipe.color}cc`,
-                                fontWeight: 600,
-                                whiteSpace: "nowrap",
-                                boxShadow: `0 2px 6px ${pipe.color}18`,
-                              }}>
-                                {app}
-                              </span>
-                            </span>
+                          {[0, 1].map(setIdx => (
+                            <div
+                              key={setIdx}
+                              ref={setIdx === 0 ? el => { pipeInnerRef.current[pipe.tier] = el; } : undefined}
+                              style={{ display:"flex", alignItems:"center", gap:8, padding:"8px 16px", flexShrink:0 }}
+                            >
+                              {pipe.items.map((item, ci) => (
+                                <div key={ci} style={{
+                                  display:"flex", alignItems:"center", gap:4, flexShrink:0,
+                                  animationName: animNames[ci % 4],
+                                  animationDuration: `${2.2 + (ci % 3) * 0.65}s`,
+                                  animationTimingFunction: "ease-in-out",
+                                  animationIterationCount: "infinite",
+                                  animationDelay: `${ci * 0.3}s`,
+                                }}>
+                                  <span style={{
+                                    fontSize:14, padding:"6px 16px", borderRadius:20, background:T.cardBg,
+                                    border:`1.5px solid ${pipe.color}70`,
+                                    color:(isDark && pipe.tier==="Low Bandwidth Queue")?"#ffffff":T.textPrimary,
+                                    fontWeight:700, whiteSpace:"nowrap", boxShadow:`0 2px 6px ${pipe.color}28`,
+                                    display:"inline-flex", flexDirection:"column", alignItems:"center", gap:2,
+                                  }}>
+                                    <span>{item.device}</span>
+                                    {(() => { const r = hostRateByKey[item.device] || hostRateByKey[item.ip] || { rx:0, tx:0 }; return (
+                                      <span style={{ fontSize:11, fontWeight:500, color:(isDark && pipe.tier==="Low Bandwidth Queue")?"#ffffff":`${pipe.color}cc`, display:"flex", gap:6 }}>
+                                        <span>↑ {fmtMbps(r.tx)} Mb/s</span>
+                                        <span>↓ {fmtMbps(r.rx)} Mb/s</span>
+                                      </span>
+                                    ); })()}
+                                  </span>
+                                  {!item.isGuest && item.apps.map((app, ai) => (
+                                    <span key={ai} style={{ display:"flex", alignItems:"center", gap:4 }}>
+                                      <span style={{ color:(isDark && pipe.tier==="Low Bandwidth Queue")?"#ffffff80":`${pipe.color}80`, fontSize:13, fontWeight:700, userSelect:"none", lineHeight:1, letterSpacing:2 }}>●●●</span>
+                                      <span style={{
+                                        fontSize:14, padding:"6px 16px", borderRadius:20, background:T.elevated,
+                                        border:`1.5px solid ${pipe.color}55`,
+                                        color:(isDark && pipe.tier==="Low Bandwidth Queue")?"#ffffff":`${pipe.color}cc`,
+                                        fontWeight:600, whiteSpace:"nowrap", boxShadow:`0 2px 6px ${pipe.color}18`,
+                                      }}>
+                                        {toTitleCase(app)}
+                                      </span>
+                                    </span>
+                                  ))}
+                                </div>
+                              ))}
+                            </div>
                           ))}
                         </div>
-                      ))}
+                      ) : (
+                        /* ── Static mode: single row with float-bob animations ── */
+                        <div
+                          ref={el => { pipeInnerRef.current[pipe.tier] = el; }}
+                          style={{ display:"flex", alignItems:"center", gap:8, padding:"8px 16px", flexWrap:"nowrap" }}
+                        >
+                          {pipe.items.map((item, ci) => (
+                            <div key={ci} style={{
+                              display:"flex", alignItems:"center", gap:4, flexShrink:0,
+                              animationName: animNames[ci % 4],
+                              animationDuration: `${2.2 + (ci % 3) * 0.65}s`,
+                              animationTimingFunction: "ease-in-out",
+                              animationIterationCount: "infinite",
+                              animationDelay: `${ci * 0.3}s`,
+                            }}>
+                              <span style={{
+                                fontSize:14, padding:"6px 16px", borderRadius:20, background:T.cardBg,
+                                border:`1.5px solid ${pipe.color}70`,
+                                color:(isDark && pipe.tier==="Low Bandwidth Queue")?"#ffffff":T.textPrimary,
+                                fontWeight:700, whiteSpace:"nowrap", boxShadow:`0 2px 6px ${pipe.color}28`,
+                                display:"inline-flex", flexDirection:"column", alignItems:"center", gap:2,
+                              }}>
+                                <span>{item.device}</span>
+                                {(() => { const r = hostRateByKey[item.device] || hostRateByKey[item.ip] || { rx:0, tx:0 }; return (
+                                  <span style={{ fontSize:11, fontWeight:500, color:(isDark && pipe.tier==="Low Bandwidth Queue")?"#ffffff":`${pipe.color}cc`, display:"flex", gap:6 }}>
+                                    <span>↑ {fmtMbps(r.tx)} Mb/s</span>
+                                    <span>↓ {fmtMbps(r.rx)} Mb/s</span>
+                                  </span>
+                                ); })()}
+                              </span>
+                              {!item.isGuest && item.apps.map((app, ai) => (
+                                <span key={ai} style={{ display:"flex", alignItems:"center", gap:4 }}>
+                                  <span style={{ color:(isDark && pipe.tier==="Low Bandwidth Queue")?"#ffffff80":`${pipe.color}80`, fontSize:13, fontWeight:700, userSelect:"none", lineHeight:1, letterSpacing:2 }}>●●●</span>
+                                  <span style={{
+                                    fontSize:14, padding:"6px 16px", borderRadius:20, background:T.elevated,
+                                    border:`1.5px solid ${pipe.color}55`,
+                                    color:(isDark && pipe.tier==="Low Bandwidth Queue")?"#ffffff":`${pipe.color}cc`,
+                                    fontWeight:600, whiteSpace:"nowrap", boxShadow:`0 2px 6px ${pipe.color}18`,
+                                  }}>
+                                    {toTitleCase(app)}
+                                  </span>
+                                </span>
+                              ))}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1839,33 +2154,32 @@ export default function SmartBandwidthAllocator() {
             "Highest Priority": { color: DANGER,  height: 4, bandwidthQueue: "Highest Bandwidth Queue" },
             "High Priority":    { color: DANGER,  height: 4, bandwidthQueue: "Highest Bandwidth Queue" },
             "Medium Priority":  { color: WARNING, height: 3, bandwidthQueue: "Moderate Bandwidth Queue" },
-            "Normal Priority":  { color: INFO,    height: 2, bandwidthQueue: "Default Bandwidth Queue"  },
-            "Low Priority":     { color: MUTED,   height: 1, bandwidthQueue: "Low Bandwidth Queue"      },
+            "Normal Priority":  { color: INFO,    height: 2, bandwidthQueue: "Normal Bandwidth Queue"  },
+            "Low Priority":     { color: MUTED,   height: 1, bandwidthQueue: "Lowest Bandwidth Queue"   },
           };
           const curHour = ndpiCurrentHour ?? new Date().getUTCHours();
-          const visibleHours = [0,1,2,3,4].map(i => ((curHour - 2 + i) + 24) % 24);
+          const visibleHours = Array.from({ length: 24 }, (_, h) => h);
 
-          // SVG chart constants
-          const W = 760, H = 300;
+          // SVG chart constants — fixed per-group width for horizontal scroll
+          const GROUP_W = 50;
           const ML = 44, MR = 16, MT = 16, MB = 56;
-          const plotW = W - ML - MR;
+          const H = 300;
           const plotH = H - MT - MB;
+          const W = visibleHours.length * GROUP_W + ML + MR;
           const MAX_PRIO = 5;
-          const BAR_GAP = 3;
-          const GROUP_PAD = 10;
-          const groupW = plotW / visibleHours.length;
+          const BAR_GAP = 2;
+          const GROUP_PAD = 6;
+          const groupW = GROUP_W;
 
           const yPos   = (v) => MT + plotH - (v / MAX_PRIO) * plotH;
           const yBarH  = (v) => (v / MAX_PRIO) * plotH;
 
           // Build flat bar list
+          const FIXED_BAR_W = 10;
           const bars = [];
           visibleHours.forEach((hour, gi) => {
             const apps = (qosChartData[hour] || []);
-            const innerW = groupW - GROUP_PAD * 2;
-            const barW = apps.length > 0
-              ? Math.min(32, Math.max(8, (innerW - (apps.length - 1) * BAR_GAP) / apps.length))
-              : 0;
+            const barW = apps.length > 0 ? FIXED_BAR_W : 0;
             const totalW = apps.length * barW + Math.max(0, apps.length - 1) * BAR_GAP;
             const startX = ML + gi * groupW + (groupW - totalW) / 2;
             apps.forEach((app, bi) => {
@@ -1879,8 +2193,8 @@ export default function SmartBandwidthAllocator() {
           const LEGEND_ITEMS = [
             { label: "Highest Bandwidth Queue",  color: DANGER  },
             { label: "Moderate Bandwidth Queue", color: WARNING },
-            { label: "Default Bandwidth Queue",  color: INFO    },
-            { label: "Low Bandwidth Queue",      color: MUTED   },
+            { label: "Normal Bandwidth Queue",   color: INFO    },
+            { label: "Lowest Bandwidth Queue",   color: MUTED   },
           ];
 
           return (
@@ -1890,22 +2204,23 @@ export default function SmartBandwidthAllocator() {
               justifyContent:"center", zIndex:1000
             }} onClick={(e) => { if (e.target === e.currentTarget) { setShowQosChartModal(false); setQosTooltip(null); } }}>
               <div style={{
-                background:"#fff", borderRadius:12, padding:"24px",
+                background: T.cardBg, border: `1px solid ${T.borderStrong}`,
+                borderRadius:12, padding:"24px",
                 maxWidth:900, width:"95%",
-                boxShadow:"0 20px 25px -5px rgba(0,0,0,0.1)",
+                boxShadow: T.shadowHover,
                 maxHeight:"90vh", overflowY:"auto"
               }}>
                 {/* Header */}
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:16 }}>
                   <div>
-                    <div style={{ fontSize:18, fontWeight:700, color:"#111827" }}>Hourly Bandwidth Configuration</div>
-                    <div style={{ fontSize:12, color:MUTED, marginTop:3 }}>
-                      App-Queue Assignments · {`${String(((curHour-2)+24)%24).padStart(2,"0")}:00`} → {`${String(((curHour+2)+24)%24).padStart(2,"0")}:00`}
+                    <div style={{ fontSize:18, fontWeight:700, color: T.textPrimary }}>Hourly Bandwidth Configuration</div>
+                    <div style={{ fontSize:12, color: MUTED, marginTop:3 }}>
+                      App-Queue Assignments · Full 24-Hour View
                     </div>
                   </div>
                   <button onClick={() => { setShowQosChartModal(false); setQosTooltip(null); }} style={{
-                    padding:"6px 14px", borderRadius:6, border:"1px solid #e5e7eb",
-                    background:"#fff", color:MUTED, cursor:"pointer", fontSize:13, fontWeight:500, flexShrink:0
+                    padding:"6px 14px", borderRadius:6, border: `1px solid ${T.border}`,
+                    background: T.elevated, color: MUTED, cursor:"pointer", fontSize:13, fontWeight:500, flexShrink:0
                   }}>
                     Close
                   </button>
@@ -1913,11 +2228,11 @@ export default function SmartBandwidthAllocator() {
 
                 {/* Legend */}
                 <div style={{ display:"flex", gap:16, marginBottom:20, flexWrap:"wrap", padding:"10px 14px",
-                  background:"#f9fafb", borderRadius:8, border:"1px solid #e5e7eb" }}>
+                  background: T.elevated, borderRadius:8, border: `1px solid ${T.border}` }}>
                   {LEGEND_ITEMS.map(item => (
                     <div key={item.label} style={{ display:"flex", alignItems:"center", gap:6, fontSize:12 }}>
                       <div style={{ width:12, height:12, borderRadius:3, background:item.color, flexShrink:0 }} />
-                      <span style={{ color:"#374151", fontWeight:500 }}>{item.label}</span>
+                      <span style={{ color: T.textSec, fontWeight:500 }}>{item.label}</span>
                     </div>
                   ))}
                   {/* <div style={{ marginLeft:"auto", fontSize:11, color:MUTED, display:"flex", alignItems:"center" }}>
@@ -1927,21 +2242,22 @@ export default function SmartBandwidthAllocator() {
 
                 {isFetchingQosChart ? (
                   <div style={{ display:"flex", justifyContent:"center", alignItems:"center", height:300 }}>
-                    <img src={loadingGif} alt="Loading" style={{ width:48, height:48, opacity:0.8 }} />
+                    <PropagateLoader />
                   </div>
                 ) : (
                   <div style={{ position:"relative" }}>
+                    <div style={{ overflowX:"auto", WebkitOverflowScrolling:"touch" }}>
                     <svg
-                      width="100%"
-                      viewBox={`0 0 ${W} ${H}`}
+                      width={W}
+                      height={H}
                       style={{ display:"block", overflow:"visible" }}
                       onMouseLeave={() => setQosTooltip(null)}
                     >
                       {/* Y-axis gridlines + labels */}
                       {[1,2,3,4].map(level => (
                         <g key={level}>
-                          <line x1={ML} y1={yPos(level)} x2={ML+plotW} y2={yPos(level)}
-                            stroke="#f3f4f6" strokeWidth={1} />
+                          <line x1={ML} y1={yPos(level)} x2={W - MR} y2={yPos(level)}
+                            stroke={T.border} strokeWidth={1} />
                           <text x={ML-6} y={yPos(level)+4} fontSize={9} fill={MUTED} textAnchor="end">
                             {level}
                           </text>
@@ -1955,7 +2271,7 @@ export default function SmartBandwidthAllocator() {
                             <line
                               x1={ML + gi*groupW} y1={MT}
                               x2={ML + gi*groupW} y2={MT+plotH}
-                              stroke="#e5e7eb" strokeWidth={1} strokeDasharray="3 3"
+                              stroke={T.border} strokeWidth={1} strokeDasharray="3 3"
                             />
                           )}
                           {/* current-hour highlight band */}
@@ -2013,8 +2329,8 @@ export default function SmartBandwidthAllocator() {
                       ))}
 
                       {/* Axes */}
-                      <line x1={ML} y1={MT} x2={ML} y2={MT+plotH} stroke="#e5e7eb" strokeWidth={1} />
-                      <line x1={ML} y1={MT+plotH} x2={ML+plotW} y2={MT+plotH} stroke="#e5e7eb" strokeWidth={1} />
+                      <line x1={ML} y1={MT} x2={ML} y2={MT+plotH} stroke={T.borderStrong} strokeWidth={1} />
+                      <line x1={ML} y1={MT+plotH} x2={W - MR} y2={MT+plotH} stroke={T.borderStrong} strokeWidth={1} />
 
                       {/* Y-axis title */}
                       <text
@@ -2025,43 +2341,415 @@ export default function SmartBandwidthAllocator() {
                         Queue
                       </text>
                     </svg>
+                    </div>
 
                     {/* Hover Tooltip */}
-                    {qosTooltip && (
-                      <div style={{
-                        position:"fixed",
-                        top: qosTooltip.y - 90,
-                        left: qosTooltip.x + 14,
-                        background:"#fff",
-                        border:"1px solid #e5e7eb",
-                        borderRadius:8,
-                        padding:"10px 13px",
-                        fontSize:12,
-                        boxShadow:"0 4px 12px rgba(0,0,0,0.12)",
-                        zIndex:2000,
-                        pointerEvents:"none",
-                        minWidth:180,
-                        lineHeight:1.7,
-                      }}>
-                        <div style={{ fontWeight:700, color:"#111827", marginBottom:4, fontSize:13 }}>
-                          {qosTooltip.app.name}
+                    {qosTooltip && (() => {
+                      const cfg = QUEUE_CFG[qosTooltip.app.queue] || {};
+                      const ttCol = cfg.color || MUTED;
+                      const queueLabel = cfg.bandwidthQueue || qosTooltip.app.queue;
+                      const deviceName = macToNameMap[(qosTooltip.app.mac || '').toLowerCase().trim()] || qosTooltip.app.mac || "Unknown";
+                      const appName = qosTooltip.app.name;
+                      const logoSrc = APP_LOGOS[(appName || "").toLowerCase()];
+                      return (
+                        <div style={{
+                          position:"fixed",
+                          top: Math.max(8, qosTooltip.y - 190),
+                          left: qosTooltip.x + 14,
+                          background: T.cardBg,
+                          border: `1.5px solid ${ttCol}40`,
+                          borderRadius:10,
+                          padding:"0",
+                          fontSize:12,
+                          boxShadow: `0 8px 32px rgba(0,0,0,0.22), 0 0 0 1px ${ttCol}20`,
+                          zIndex:2000,
+                          pointerEvents:"none",
+                          minWidth:220,
+                          overflow:"hidden",
+                        }}>
+                          {/* Coloured header band — Time · Queue */}
+                          <div style={{
+                            background: `linear-gradient(135deg, ${ttCol}22, ${ttCol}0a)`,
+                            borderBottom: `1px solid ${ttCol}30`,
+                            padding:"10px 14px 8px 14px",
+                            display:"flex", alignItems:"center", justifyContent:"space-between"
+                          }}>
+                            <div style={{ fontWeight:700, color: T.textPrimary, fontSize:14 }}>
+                              {qosTooltip.hourLabel}
+                            </div>
+                            <span style={{
+                              fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:20,
+                              background: ttCol, color:"#fff", letterSpacing:"0.04em",
+                              whiteSpace:"nowrap",
+                            }}>
+                              {queueLabel}
+                            </span>
+                          </div>
+
+                          <div style={{ padding:"10px 14px" }}>
+                            {/* Device row */}
+                            <div style={{ display:"grid", gridTemplateColumns:"auto 1fr", gap:"3px 10px", marginBottom:10, alignItems:"center" }}>
+                              <div style={{ color: MUTED, fontSize:11 }}>Device</div>
+                              <div style={{ color: T.textSec, fontWeight:600, fontSize:12 }}>{deviceName}</div>
+                            </div>
+
+                            {/* Active Apps */}
+                            <div style={{ borderTop: `1px solid ${T.border}`, paddingTop:8 }}>
+                              <div style={{ fontSize:10, color: MUTED, fontWeight:600,
+                                textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:6 }}>
+                                Active App
+                              </div>
+                              <div style={{
+                                display:"flex", alignItems:"center", gap:8,
+                                padding:"5px 9px", borderRadius:7,
+                                background: T.elevated, border: `1px solid ${T.border}`,
+                              }}>
+                                {/* Icon-App */}
+                                {logoSrc ? (
+                                  <img src={logoSrc} alt="" style={{ width:16, height:16, objectFit:"contain", borderRadius:2, flexShrink:0 }}
+                                    onError={e => { e.currentTarget.style.display = "none"; }} />
+                                ) : (
+                                  <span style={{ width:16, height:16, borderRadius:3, background: T.border, flexShrink:0,
+                                    display:"inline-flex", alignItems:"center", justifyContent:"center",
+                                    fontSize:9, color: T.textMuted, fontWeight:700 }}>
+                                    {(appName || "?").charAt(0).toUpperCase()}
+                                  </span>
+                                )}
+                                <div style={{ flex:1, minWidth:0 }}>
+                                  <div style={{ fontSize:11, fontWeight:600, color: T.textPrimary, lineHeight:1.3 }}>
+                                    {toTitleCase(appName)}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
                         </div>
-                        <div style={{ color:MUTED }}>
-                          <span style={{ color:"#374151", fontWeight:500 }}>Device&nbsp;</span>
-                          {macToNameMap[(qosTooltip.app.mac || '').toLowerCase().trim()] || qosTooltip.app.mac || "Unknown"}
+                      );
+                    })()}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Device History Modal */}
+        {showDeviceHistoryModal && (() => {
+          const MB = 1024 * 1024;
+          const Y_MARKERS_MB = [100, 300, 500, 1000, 2000, 3000];
+          const MAX_Y_BYTES = 3000 * MB;
+
+          const getBwColor = (bytes) => {
+            if (bytes > 400 * MB) return DANGER;
+            if (bytes > 300 * MB) return WARNING;
+            if (bytes > 200 * MB) return INFO;
+            return MUTED;
+          };
+          const getBwQueueLabel = (bytes) => {
+            if (bytes > 400 * MB) return "Highest Queue";
+            if (bytes > 300 * MB) return "Moderate Queue";
+            if (bytes > 200 * MB) return "Normal Queue";
+            return "Lowest Queue";
+          };
+
+          // Aggregate 96 × 15-min slots → 24 hourly averages
+          const hourlyPoints = Array.from({ length: 24 }, (_, h) => {
+            const slots = deviceHistoryPoints.slice(h * 4, h * 4 + 4);
+            const avgTotal = slots.reduce((s, p) => s + p.total, 0) / 4;
+            const avgTx    = slots.reduce((s, p) => s + p.tx, 0) / 4;
+            const avgRx    = slots.reduce((s, p) => s + p.rx, 0) / 4;
+            const apps     = [...new Set(slots.flatMap(p => p.apps))];
+            // Per-app average across the 4 slots
+            const rawAppStats = {};
+            slots.forEach(slot => {
+              Object.entries(slot.appStats || {}).forEach(([app, { tx, rx }]) => {
+                if (!rawAppStats[app]) rawAppStats[app] = { tx: 0, rx: 0 };
+                rawAppStats[app].tx += tx;
+                rawAppStats[app].rx += rx;
+              });
+            });
+            const appStats = {};
+            Object.entries(rawAppStats).forEach(([app, { tx, rx }]) => {
+              appStats[app] = { avgTx: tx / 4, avgRx: rx / 4 };
+            });
+            return { hour: h, label: `${String(h).padStart(2,"0")}:00`, avgTotal, avgTx, avgRx, apps, appStats };
+          });
+
+          const hasData = hourlyPoints.some(p => p.avgTotal > 0);
+
+          // SVG layout
+          const GROUP_W = 40;
+          const BAR_W   = 24;
+          const ML_H = 68, MR_H = 20, MT_H = 24, MB_H = 46;
+          const H_H = 300;
+          const plotH_H = H_H - MT_H - MB_H;
+          const W_H = 24 * GROUP_W + ML_H + MR_H;
+
+          const yH      = (v) => MT_H + plotH_H - Math.min(v / MAX_Y_BYTES, 1) * plotH_H;
+          const barH_fn = (v) => Math.max(0, Math.min(v / MAX_Y_BYTES, 1) * plotH_H);
+
+          const LEGEND_ITEMS = [
+            { label: "Highest Queue (>400 MB)", color: DANGER  },
+            { label: "Moderate Queue (>300 MB)", color: WARNING },
+            { label: "Normal Queue (>200 MB)",   color: INFO    },
+            { label: "Lowest Queue (≤200 MB)",   color: MUTED   },
+          ];
+
+          return (
+            <div style={{
+              position:"fixed", top:0, left:0, right:0, bottom:0,
+              background:"rgba(0,0,0,0.55)", display:"flex", alignItems:"center",
+              justifyContent:"center", zIndex:1000
+            }} onClick={(e) => { if (e.target === e.currentTarget) { setShowDeviceHistoryModal(false); setHistoryTooltip(null); } }}>
+              <div style={{
+                background: T.cardBg, border: `1px solid ${T.borderStrong}`,
+                borderRadius:14, padding:"24px",
+                maxWidth:1020, width:"95%",
+                boxShadow: T.shadowHover,
+                maxHeight:"92vh", overflowY:"auto"
+              }}>
+                {/* Header */}
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:16 }}>
+                  <div>
+                    <div style={{ fontSize:18, fontWeight:700, color: T.textPrimary }}>
+                      Previous Week Usage - {historySelectedDevice?.name || "Unknown Device"}
+                    </div>
+                    <div style={{ fontSize:12, color: MUTED, marginTop:3 }}>
+                      {historyUsedDate || (isFetchingHistory ? "Loading…" : "—")} · Hourly Average · 24 Hours
+                    </div>
+                  </div>
+                  <button onClick={() => { setShowDeviceHistoryModal(false); setHistoryTooltip(null); }} style={{
+                    padding:"6px 14px", borderRadius:6, border: `1px solid ${T.border}`,
+                    background: T.elevated, color: MUTED, cursor:"pointer", fontSize:13, fontWeight:500, flexShrink:0
+                  }}>
+                    Close
+                  </button>
+                </div>
+
+                {/* Legend */}
+                <div style={{ display:"flex", gap:16, marginBottom:18, flexWrap:"wrap", padding:"10px 14px",
+                  background: T.elevated, borderRadius:8, border: `1px solid ${T.border}` }}>
+                  {LEGEND_ITEMS.map(item => (
+                    <div key={item.label} style={{ display:"flex", alignItems:"center", gap:6, fontSize:12 }}>
+                      <div style={{ width:11, height:11, borderRadius:3, background:item.color, flexShrink:0 }} />
+                      <span style={{ color: T.textSec, fontWeight:500 }}>{item.label}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {isFetchingHistory ? (
+                  <div style={{ display:"flex", justifyContent:"center", alignItems:"center", height:280 }}>
+                    <PropagateLoader />
+                  </div>
+                ) : !hasData ? (
+                  <div style={{ display:"flex", justifyContent:"center", alignItems:"center", height:280, color: MUTED, fontSize:14 }}>
+                    No historical data found for this device.
+                  </div>
+                ) : (
+                  <div style={{ position:"relative" }}>
+                    <div style={{ overflowX:"auto", WebkitOverflowScrolling:"touch" }}>
+                      <svg
+                        width={W_H}
+                        height={H_H}
+                        style={{ display:"block", overflow:"visible" }}
+                        onMouseLeave={() => setHistoryTooltip(null)}
+                      >
+                        {/* Y-axis fixed gridlines + labels */}
+                        {Y_MARKERS_MB.map(mb => {
+                          const yv = yH(mb * MB);
+                          return (
+                            <g key={mb}>
+                              <line x1={ML_H} y1={yv} x2={W_H - MR_H} y2={yv}
+                                stroke={isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.07)"}
+                                strokeWidth={1} strokeDasharray={mb >= 1000 ? "4 3" : "2 4"} />
+                              <text x={ML_H - 6} y={yv + 4} fontSize={10} fill={MUTED} textAnchor="end" fontWeight={500}>
+                                {mb >= 1000 ? `${mb/1000}G` : `${mb}M`}
+                              </text>
+                            </g>
+                          );
+                        })}
+
+                        {/* Hour column backgrounds (alternating subtle shade) + X-axis labels */}
+                        {hourlyPoints.map(({ hour, label }) => {
+                          const cx = ML_H + hour * GROUP_W;
+                          return (
+                            <g key={hour}>
+                              {hour % 2 === 0 && (
+                                <rect x={cx} y={MT_H} width={GROUP_W} height={plotH_H}
+                                  fill={isDark ? "rgba(255,255,255,0.015)" : "rgba(0,0,0,0.012)"} />
+                              )}
+                              <text
+                                x={cx + GROUP_W / 2}
+                                y={MT_H + plotH_H + 18}
+                                fontSize={9.5} fill={MUTED} textAnchor="middle"
+                              >
+                                {label}
+                              </text>
+                            </g>
+                          );
+                        })}
+
+                        {/* Bars */}
+                        {hourlyPoints.map(({ hour, label, avgTotal, avgTx, avgRx, apps, appStats }) => {
+                          const bh   = barH_fn(avgTotal);
+                          const bx   = ML_H + hour * GROUP_W + (GROUP_W - BAR_W) / 2;
+                          const by   = yH(avgTotal);
+                          const col  = getBwColor(avgTotal);
+                          const isActive = avgTotal > 0;
+                          return (
+                            <g key={hour}>
+                              {/* Bar shadow/glow */}
+                              {isActive && (
+                                <rect x={bx - 1} y={by - 1} width={BAR_W + 2} height={bh + 2}
+                                  fill={col} fillOpacity={0.12} rx={4} />
+                              )}
+                              {/* Main bar */}
+                              <rect
+                                x={bx} y={by} width={BAR_W} height={bh}
+                                fill={isActive ? col : (isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)")}
+                                fillOpacity={isActive ? 0.85 : 1}
+                                rx={3}
+                                style={{ cursor: isActive ? "pointer" : "default", transition:"fill-opacity 0.15s" }}
+                                onMouseEnter={isActive ? (e) => setHistoryTooltip({ hour, label, avgTotal, avgTx, avgRx, apps, appStats, x: e.clientX, y: e.clientY }) : undefined}
+                                onMouseMove={isActive ? (e) => setHistoryTooltip(prev => prev ? { ...prev, x: e.clientX, y: e.clientY } : prev) : undefined}
+                                onMouseLeave={isActive ? () => setHistoryTooltip(null) : undefined}
+                              />
+                              {/* Top highlight stripe */}
+                              {isActive && bh > 6 && (
+                                <rect x={bx} y={by} width={BAR_W} height={3}
+                                  fill={col} fillOpacity={0.55} rx={3} />
+                              )}
+                            </g>
+                          );
+                        })}
+
+                        {/* Axes */}
+                        <line x1={ML_H} y1={MT_H} x2={ML_H} y2={MT_H + plotH_H} stroke={T.borderStrong} strokeWidth={1.5} />
+                        <line x1={ML_H} y1={MT_H + plotH_H} x2={W_H - MR_H} y2={MT_H + plotH_H} stroke={T.borderStrong} strokeWidth={1.5} />
+
+                        {/* Y-axis label */}
+                        <text x={13} y={MT_H + plotH_H / 2} fontSize={10} fill={MUTED} textAnchor="middle"
+                          transform={`rotate(-90, 13, ${MT_H + plotH_H / 2})`} fontWeight={600}>
+                          Avg MB / hr
+                        </text>
+
+                        {/* X-axis label */}
+                        <text x={ML_H + 24 * GROUP_W / 2} y={H_H - 4} fontSize={10} fill={MUTED} textAnchor="middle">
+                          Hour of Day
+                        </text>
+                      </svg>
+                    </div>
+
+                    {/* Rich Tooltip */}
+                    {historyTooltip && (() => {
+                      const ttCol   = getBwColor(historyTooltip.avgTotal);
+                      const ttQueue = getBwQueueLabel(historyTooltip.avgTotal);
+                      const topApps = historyTooltip.apps.slice(0, 4);
+                      return (
+                        <div style={{
+                          position:"fixed",
+                          top: Math.max(8, historyTooltip.y - 220),
+                          left: historyTooltip.x + 16,
+                          background: T.cardBg,
+                          border: `1.5px solid ${ttCol}40`,
+                          borderRadius:10,
+                          padding:"0",
+                          fontSize:12,
+                          boxShadow: `0 8px 32px rgba(0,0,0,0.22), 0 0 0 1px ${ttCol}20`,
+                          zIndex:2000,
+                          pointerEvents:"none",
+                          minWidth:220,
+                          overflow:"hidden",
+                        }}>
+                          {/* Coloured header band */}
+                          <div style={{
+                            background: `linear-gradient(135deg, ${ttCol}22, ${ttCol}0a)`,
+                            borderBottom: `1px solid ${ttCol}30`,
+                            padding:"10px 14px 8px 14px",
+                            display:"flex", alignItems:"center", justifyContent:"space-between"
+                          }}>
+                            <div style={{ fontWeight:700, color: T.textPrimary, fontSize:14 }}>
+                              {historyTooltip.label}
+                            </div>
+                            <span style={{
+                              fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:20,
+                              background: ttCol, color:"#fff", letterSpacing:"0.04em"
+                            }}>
+                              {ttQueue}
+                            </span>
+                          </div>
+
+                          <div style={{ padding:"10px 14px" }}>
+                            {/* Bandwidth rows */}
+                            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"4px 12px", marginBottom:10 }}>
+                              <div style={{ color: MUTED, fontSize:11 }}>Total Bandwidth</div>
+                              <div style={{ color: ttCol, fontWeight:700, fontSize:12 }}>
+                                {(historyTooltip.avgTotal / MB).toFixed(1)} MB
+                              </div>
+                              <div style={{ color: MUTED, fontSize:11 }}>↑ Upload</div>
+                              <div style={{ color: T.textSec, fontWeight:600, fontSize:12 }}>
+                                {(historyTooltip.avgTx / MB).toFixed(1)} MB
+                              </div>
+                              <div style={{ color: MUTED, fontSize:11 }}>↓ Download</div>
+                              <div style={{ color: T.textSec, fontWeight:600, fontSize:12 }}>
+                                {(historyTooltip.avgRx / MB).toFixed(1)} MB
+                              </div>
+                            </div>
+
+                            {/* Apps with logos + per-app bandwidth */}
+                            {topApps.length > 0 && (
+                              <div style={{ borderTop: `1px solid ${T.border}`, paddingTop:8 }}>
+                                <div style={{ fontSize:10, color: MUTED, fontWeight:600,
+                                  textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:6 }}>
+                                  Active Apps
+                                </div>
+                                <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
+                                  {topApps.map(app => {
+                                    const logoSrc = APP_LOGOS[(app || "").toLowerCase()];
+                                    const appStat = (historyTooltip.appStats || {})[app];
+                                    return (
+                                      <div key={app} style={{
+                                        display:"flex", alignItems:"center", gap:8,
+                                        padding:"5px 9px", borderRadius:7,
+                                        background: T.elevated, border: `1px solid ${T.border}`,
+                                      }}>
+                                        {/* Logo */}
+                                        {logoSrc ? (
+                                          <img src={logoSrc} alt="" style={{ width:16, height:16, objectFit:"contain", borderRadius:2, flexShrink:0 }}
+                                            onError={e => { e.currentTarget.style.display = "none"; }} />
+                                        ) : (
+                                          <span style={{ width:16, height:16, borderRadius:3, background: T.border, flexShrink:0,
+                                            display:"inline-flex", alignItems:"center", justifyContent:"center",
+                                            fontSize:9, color: T.textMuted, fontWeight:700 }}>
+                                            {(app || "?").charAt(0).toUpperCase()}
+                                          </span>
+                                        )}
+                                        {/* Name + stats */}
+                                        <div style={{ flex:1, minWidth:0 }}>
+                                          <div style={{ fontSize:11, fontWeight:600, color: T.textPrimary, lineHeight:1.3 }}>
+                                            {toTitleCase(app)}
+                                          </div>
+                                          {appStat && (
+                                            <div style={{ display:"flex", gap:10, marginTop:2 }}>
+                                              <span style={{ fontSize:10, color: T.textSec }}>
+                                                ↑ {(appStat.avgTx / MB).toFixed(1)} MB
+                                              </span>
+                                              <span style={{ fontSize:10, color: T.textSec }}>
+                                                ↓ {(appStat.avgRx / MB).toFixed(1)} MB
+                                              </span>
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                          </div>
                         </div>
-                        <div style={{ color:MUTED }}>
-                          <span style={{ color:"#374151", fontWeight:500 }}>Queue&nbsp;</span>
-                          <span style={{ color: (QUEUE_CFG[qosTooltip.app.queue] || {}).color || MUTED, fontWeight:600 }}>
-                            {(QUEUE_CFG[qosTooltip.app.queue] || {}).bandwidthQueue || qosTooltip.app.queue}
-                          </span>
-                        </div>
-                        <div style={{ color:MUTED }}>
-                          <span style={{ color:"#374151", fontWeight:500 }}>Hour&nbsp;</span>
-                          {qosTooltip.hourLabel}
-                        </div>
-                      </div>
-                    )}
+                      );
+                    })()}
                   </div>
                 )}
               </div>
@@ -2080,14 +2768,14 @@ export default function SmartBandwidthAllocator() {
           <div style={{ maxHeight: "400px", overflowY: "auto" }}>
             {["high", "medium", "normal", "low"].map(tier => (
               <div key={tier} style={{ marginBottom: 20 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: "#111827", marginBottom: 8, textTransform: "uppercase" }}>
-                  {tier} Priority Protocols
+                <div style={{ fontSize: 12, fontWeight: 600, color: T.textPrimary, marginBottom: 8, textTransform: "uppercase" }}>
+                  {tier === 'low' ? 'Lowest' : tier} Priority Protocols
                 </div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 10 }}>
                   {editingProtos[tier].map(proto => (
                     <span key={proto} style={{
                       fontSize: 11, padding: "4px 10px", borderRadius: 4,
-                      background: "#e8f5f0", color: PRIMARY, display: "flex",
+                      background: T.successBg, color: PRIMARY, display: "flex",
                       alignItems: "center", gap: 6, fontFamily: "monospace"
                     }}>
                       {proto}
@@ -2102,8 +2790,8 @@ export default function SmartBandwidthAllocator() {
                 </div>
               </div>
             ))}
-            <div style={{ borderTop: "1px solid #e5e7eb", paddingTop: 14 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: "#111827", marginBottom: 8 }}>
+            <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 14 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: T.textPrimary, marginBottom: 8 }}>
                 Add Protocol
               </div>
               <div style={{ display: "flex", gap: 6 }}>
@@ -2114,22 +2802,23 @@ export default function SmartBandwidthAllocator() {
                   onChange={(e) => setNewProtoInput(e.target.value)}
                   onKeyPress={(e) => { if (e.key === "Enter") addProto(); }}
                   style={{
-                    flex: 1, padding: "6px 10px", border: "1px solid #e5e7eb",
-                    borderRadius: 4, fontSize: 12, fontFamily: "monospace"
+                    flex: 1, padding: "6px 10px", border: `1px solid ${T.border}`,
+                    borderRadius: 4, fontSize: 12, fontFamily: "monospace",
+                    background: T.elevated, color: T.textPrimary
                   }}
                 />
                 <select
                   value={newProtoTier}
                   onChange={(e) => setNewProtoTier(e.target.value)}
                   style={{
-                    padding: "6px 8px", border: "1px solid #e5e7eb",
-                    borderRadius: 4, fontSize: 11, background: "#fff"
+                    padding: "6px 8px", border: `1px solid ${T.border}`,
+                    borderRadius: 4, fontSize: 11, background: T.elevated, color: T.textPrimary
                   }}
                 >
                   <option value="high">High</option>
                   <option value="medium">Medium</option>
                   <option value="normal">Normal</option>
-                  <option value="low">Low</option>
+                  <option value="low">Lowest</option>
                 </select>
                 <button onClick={addProto} style={{
                   padding: "6px 12px", borderRadius: 4, border: "none",
@@ -2153,7 +2842,7 @@ export default function SmartBandwidthAllocator() {
           <div>
             {["high", "medium", "normal"].map(tier => (
               <div key={tier} style={{ marginBottom: 14 }}>
-                <label style={{ fontSize: 12, fontWeight: 600, color: "#111827", display: "block", marginBottom: 4, textTransform: "capitalize" }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: T.textPrimary, display: "block", marginBottom: 4, textTransform: "capitalize" }}>
                   {tier} Priority Threshold (KB/s)
                 </label>
                 <input
@@ -2161,8 +2850,9 @@ export default function SmartBandwidthAllocator() {
                   value={editingThresholds[tier]}
                   onChange={(e) => setEditingThresholds(prev => ({ ...prev, [tier]: e.target.value }))}
                   style={{
-                    width: "100%", padding: "8px 10px", border: "1px solid #e5e7eb",
-                    borderRadius: 4, fontSize: 12, fontFamily: "monospace"
+                    width: "100%", padding: "8px 10px", border: `1px solid ${T.border}`,
+                    borderRadius: 4, fontSize: 12, fontFamily: "monospace",
+                    background: T.elevated, color: T.textPrimary
                   }}
                 />
               </div>
@@ -2180,7 +2870,7 @@ export default function SmartBandwidthAllocator() {
         >
           <div>
             <div style={{ marginBottom: 14 }}>
-              <label style={{ fontSize: 12, fontWeight: 600, color: "#111827", display: "block", marginBottom: 4 }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: T.textPrimary, display: "block", marginBottom: 4 }}>
                 Shaper Rate (bps)
               </label>
               <input
@@ -2188,19 +2878,20 @@ export default function SmartBandwidthAllocator() {
                 value={editingCapacity.shaperRate}
                 onChange={(e) => setEditingCapacity(prev => ({ ...prev, shaperRate: e.target.value }))}
                 style={{
-                  width: "100%", padding: "8px 10px", border: "1px solid #e5e7eb",
-                  borderRadius: 4, fontSize: 12, fontFamily: "monospace"
+                  width: "100%", padding: "8px 10px", border: `1px solid ${T.border}`,
+                  borderRadius: 4, fontSize: 12, fontFamily: "monospace",
+                  background: T.elevated, color: T.textPrimary
                 }}
               />
             </div>
             {[
-              { key: "high", label: "Highest Bandwidth Queue Rate (bps)" },
-              { key: "medium", label: "Moderate Bandwidth Queue Rate (bps)" },
-              { key: "normal", label: "Default Bandwidth Queue Rate (bps)" },
-              { key: "low", label: "Low Bandwidth Queue Rate (bps)" }
+              { key: "high", label: "Highest Queue Rate (bps)" },
+              { key: "medium", label: "Moderate Queue Rate (bps)" },
+              { key: "normal", label: "Normal Queue Rate (bps)" },
+              { key: "low", label: "Lowest Queue Rate (bps)" }
             ].map(({ key, label }) => (
               <div key={key} style={{ marginBottom: 14 }}>
-                <label style={{ fontSize: 12, fontWeight: 600, color: "#111827", display: "block", marginBottom: 4 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: T.textPrimary, display: "block", marginBottom: 4 }}>
                   {label}
                 </label>
                 <input
@@ -2208,8 +2899,9 @@ export default function SmartBandwidthAllocator() {
                   value={editingCapacity[key]}
                   onChange={(e) => setEditingCapacity(prev => ({ ...prev, [key]: e.target.value }))}
                   style={{
-                    width: "100%", padding: "8px 10px", border: "1px solid #e5e7eb",
-                    borderRadius: 4, fontSize: 12, fontFamily: "monospace"
+                    width: "100%", padding: "8px 10px", border: `1px solid ${T.border}`,
+                    borderRadius: 4, fontSize: 12, fontFamily: "monospace",
+                    background: T.elevated, color: T.textPrimary
                   }}
                 />
               </div>

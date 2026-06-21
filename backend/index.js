@@ -257,6 +257,16 @@ app.post('/api/anomaly-detection/kill', async (req, res) => {
   }
 });
 
+// API: Trigger Anomaly Simulation Script
+app.post('/api/anomaly-detection/simulate', async (req, res) => {
+  try {
+    await sshExec('cd /etc/AI-agent/AnomalyDetection/python_scripts/ && python3 simulate_anomaly.py > /dev/null 2>&1 &');
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: `SSH error: ${err.message}` });
+  }
+});
+
 // API: Set Anomaly Detection Status
 app.post('/api/anomaly-detection/status', async (req, res) => {
   try {
