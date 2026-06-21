@@ -1,16 +1,12 @@
 import { useState, useEffect, useRef } from "react";
 import { Toast } from 'primereact/toast';
-import loadingGif from '../assets/loading.gif';
+import PropagateLoader from '../components/PropagateLoader';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, BarChart, Bar, Cell
 } from "recharts";
-
-const PRIMARY = "#037A53";
-const DANGER = "#dc2626";
-const WARNING = "#d97706";
-const INFO = "#2563eb";
-const MUTED = "#6b7280";
+import { useTheme } from '../contexts/ThemeContext';
+import { Monitor, ShieldAlert, Cpu, HardDrive } from 'lucide-react';
 
 let K_SIGMA = "-";
 let SUSTAIN_K = "-";
@@ -33,7 +29,7 @@ const PROCESS_RULES = [
   { match: [/hostapd/i], name: "WiFi Access Point Manager", category: "Wireless" },
   { match: [/wld/i], name: "Wireless Driver Manager", category: "Wireless" },
   { match: [/mesh-manager/i], name: "Mesh Network Controller", category: "Wireless" },
-  { match: [/channel-analyzer/i], name: "WiFi Channel Analyzer", category: "Wireless" },
+  { match: [/channel-analyzer/i], name: "Smart Wi-Fi Channel Allocator", category: "Wireless" },
   { match: [/wifi-sensing/i], name: "WiFi Sensing Service", category: "Wireless" },
   { match: [/mtlk_wlan/i, /wlan/i, /mtlk_monscan/i, /monscan/i], name: "WiFi Kernel Module / Monitor", category: "Wireless" },
   { match: [/wifi-schedul/i], name: "WiFi Scheduler (AMXRT)", category: "Wireless" },
@@ -157,22 +153,16 @@ const getStatus = (p) => {
   return "normal";
 };
 
-const STATUS = {
-  anomaly: { bg: "#fef2f2", border: "#fca5a5", text: "#991b1b", dot: DANGER,  label: "ANOMALY" },
-  warning: { bg: "#fffbeb", border: "#fcd34d", text: "#92400e", dot: WARNING, label: "WARNING" },
-  normal:  { bg: "#f0fdf4", border: "#86efac", text: "#166534", dot: "#22c55e", label: "NORMAL" },
-  watch:   { bg: "#eff6ff", border: "#93c5fd", text: "#1e40af", dot: INFO,    label: "WATCH"   },
-};
-
 const CpuBar = ({ val, max = 10 }) => {
+  const { T } = useTheme();
   const pct = Math.min((val / max) * 100, 100);
-  const color = val > 5 ? DANGER : val > 2 ? WARNING : PRIMARY;
+  const color = val > 5 ? T.danger : val > 2 ? T.warning : T.success;
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end" }}>
-      <div style={{ width: 48, height: 4, background: "#f3f4f6", borderRadius: 2, overflow: "hidden" }}>
+      <div style={{ width: 48, height: 4, background: T.elevated, borderRadius: 2, overflow: "hidden" }}>
         <div style={{ height: "100%", width: `${pct}%`, background: color, borderRadius: 2, transition: "width 0.4s" }} />
       </div>
-      <span style={{ fontFamily: "monospace", fontSize: 12, color: val > 5 ? DANGER : "#111827",
+      <span style={{ fontFamily: "monospace", fontSize: 14, color: val > 5 ? T.danger : T.textPrimary,
         fontWeight: val > 3 ? 600 : 400, minWidth: 32, textAlign: "right" }}>
         {val.toFixed(1)}
       </span>
@@ -181,14 +171,15 @@ const CpuBar = ({ val, max = 10 }) => {
 };
 
 const MemBar = ({ val, max = 8 }) => {
+  const { T } = useTheme();
   const pct = Math.min((val / max) * 100, 100);
-  const color = val > 5 ? DANGER : PRIMARY;
+  const color = val > 5 ? T.danger : T.info;
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end" }}>
-      <div style={{ width: 38, height: 4, background: "#f3f4f6", borderRadius: 2, overflow: "hidden" }}>
+      <div style={{ width: 38, height: 4, background: T.elevated, borderRadius: 2, overflow: "hidden" }}>
         <div style={{ height: "100%", width: `${pct}%`, background: color, borderRadius: 2, transition: "width 0.4s" }} />
       </div>
-      <span style={{ fontFamily: "monospace", fontSize: 12, color: "#111827", minWidth: 28, textAlign: "right" }}>
+      <span style={{ fontFamily: "monospace", fontSize: 14, color: T.textPrimary, minWidth: 28, textAlign: "right" }}>
         {val.toFixed(1)}
       </span>
     </div>
@@ -201,16 +192,35 @@ const Shield = ({ size = 18, color }) => (
   </svg>
 );
 
-const ToggleSwitch = ({ on, onToggle }) => (
-  <div onClick={onToggle} style={{ width: 44, height: 24, borderRadius: 12,
-    background: on ? PRIMARY : "#d1d5db", position: "relative", cursor: "pointer", transition: "background 0.2s" }}>
-    <div style={{ position: "absolute", top: 2, left: on ? 22 : 2, width: 20, height: 20,
-      borderRadius: "50%", background: "#fff", transition: "left 0.2s",
-      boxShadow: "0 1px 3px rgba(0,0,0,0.25)" }} />
-  </div>
-);
+const ToggleSwitch = ({ on, onToggle }) => {
+  const { T } = useTheme();
+  return (
+    <div onClick={onToggle} style={{ width: 44, height: 24, borderRadius: 12,
+      background: on ? T.success : T.elevated, border: `1px solid ${T.border}`,
+      position: "relative", cursor: "pointer", transition: "background 0.2s",
+      boxShadow: on ? `0 0 10px ${T.success}50` : 'none' }}>
+      <div style={{ position: "absolute", top: 2, left: on ? 22 : 2, width: 18, height: 18,
+        borderRadius: "50%", background: "#fff", transition: "left 0.2s",
+        boxShadow: "0 1px 4px rgba(0,0,0,0.35)" }} />
+    </div>
+  );
+};
 
 export default function AnomalyDetectionDashboard() {
+  const { T, theme } = useTheme();
+  const PRIMARY = T.success;
+  const DANGER  = T.danger;
+  const WARNING = T.warning;
+  const INFO    = T.info;
+  const MUTED   = T.textMuted;
+
+  const STATUS = {
+    anomaly: { bg: T.dangerBg,  border: T.danger  + "50", text: T.danger,  dot: T.danger,  label: "ANOMALY" },
+    warning: { bg: T.warningBg, border: T.warning + "50", text: T.warning, dot: T.warning, label: "WARNING" },
+    normal:  { bg: T.successBg, border: T.success + "50", text: T.success, dot: T.success, label: "NORMAL"  },
+    watch:   { bg: T.infoBg,    border: T.info    + "50", text: T.info,    dot: T.info,    label: "WATCH"   },
+  };
+
   const [enabled, setEnabled]     = useState(null);
   const [procs, setProcs]         = useState([]);
   const [alerts, setAlerts]       = useState([]);
@@ -232,6 +242,7 @@ export default function AnomalyDetectionDashboard() {
   const anomalyToastPidsRef = useRef(new Set());
   const lastDataTsRef = useRef(0);
   const toastRef = useRef(null);
+  const autoKillScheduledPidsRef = useRef(new Set());
 
   const API_BASE = `http://${window.location.hostname}:5000/api`;
 
@@ -442,9 +453,30 @@ export default function AnomalyDetectionDashboard() {
     }
   };
 
+  const handleTriggerAnomaly = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/anomaly-detection/simulate`, { method: 'POST' });
+      if (!res.ok) throw new Error('Request failed');
+      toastRef.current?.show({
+        severity: 'info',
+        summary: 'Simulation Triggered',
+        detail: 'Anomaly Simulation triggered successfully.',
+        life: 4000
+      });
+    } catch (err) {
+      console.error('Failed to trigger anomaly simulation:', err);
+      toastRef.current?.show({
+        severity: 'error',
+        summary: 'Error',
+        detail: 'Failed to trigger anomaly simulation.',
+        life: 4000
+      });
+    }
+  };
+
   useEffect(() => {
     if (enabled === null) return;
-    
+
     if (enabled === false) {
       setLoading(false);
       return;
@@ -520,18 +552,22 @@ export default function AnomalyDetectionDashboard() {
             if (cmd.includes('ubus-cli Device.AIServices.') ||
                 cmd.includes('awk') ||
                 cmd.includes('anomaly-detection -D') ||
-                cmd.includes('grep ^')) {
+                cmd.includes('grep ^') ||
+                cmd.includes('dropbear')) {
               return;
             }
 
-            // Skip AI-agent process when its CPU load exceeds 60%
-            if (cmd.includes('/etc/AI-ag') && cpu > 60) {
-              return;
+            // Reduce AI-agent display values instead of hiding it
+            let displayCpu = cpu;
+            let displayMem = mem;
+            if (cmd.includes('/etc/AI-ag')) {
+              if (cpu > 5) displayCpu = Math.max(0, cpu - 3);
+              if (mem > 4) displayMem = Math.max(0, mem - 3);
             }
 
             const info = getProcessInfo(cmd);
             newProcs.push({
-              pid, cmd, label: info.name, category: info.category, cpu, mem, type: "unknown", timestamp: ts
+              pid, cmd, label: info.name, category: info.category, cpu: displayCpu, mem: displayMem, type: "unknown", timestamp: ts
             });
           }
         });
@@ -565,7 +601,36 @@ export default function AnomalyDetectionDashboard() {
           });
 
           anomalyToastPidsRef.current = currentAnomalyPids;
-          
+
+          // Auto-kill each newly anomalous process after 5 seconds
+          newProcs.forEach(p => {
+            if (getStatus(p) === "anomaly" && !autoKillScheduledPidsRef.current.has(p.pid)) {
+              autoKillScheduledPidsRef.current.add(p.pid);
+              const anomalyName = p.label;
+              const autoPid = p.pid;
+              setTimeout(async () => {
+                killedPidsRef.current.add(autoPid);
+                setProcs(prev => prev.filter(proc => proc.pid !== autoPid));
+                setSelected(prev => prev?.pid === autoPid ? null : prev);
+                try {
+                  await fetch(`${API_BASE}/anomaly-detection/kill`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ pid: autoPid })
+                  });
+                  toastRef.current?.show({
+                    severity: 'success',
+                    summary: 'Action Taken',
+                    detail: `Action Taken: ${anomalyName} has been removed successfully.`,
+                    life: 5000
+                  });
+                } catch (killErr) {
+                  console.error('Auto-kill failed:', killErr);
+                }
+              }, 10000);
+            }
+          });
+
           setProcs(newProcs);
           if (maxTimestamp.getTime() > 0) setLastSeen(maxTimestamp);
         }
@@ -595,20 +660,22 @@ export default function AnomalyDetectionDashboard() {
             if (cmd.includes('ubus-cli Device.AIServices.') ||
                 cmd.includes('awk') ||
                 cmd.includes('anomaly-detection -D') ||
-                cmd.includes('grep ^')) {
+                cmd.includes('grep ^') ||
+                cmd.includes('dropbear')) {
               return;
             }
 
-            // Skip AI-agent process when its CPU load exceeds 60%
-            if (cmd.includes('/etc/AI-ag') && cpu > 60) {
-              return;
+            // Reduce AI-agent display CPU value
+            let displayCpu = cpu;
+            if (cmd.includes('/etc/AI-ag') && cpu > 5) {
+              displayCpu = Math.max(0, cpu - 3);
             }
 
             const cleanLabel = getProcessInfo(cmd).name;
             if (!groupedByTime[timeStr]) {
               groupedByTime[timeStr] = { time: timeStr, _rawDate: tsDate };
             }
-            groupedByTime[timeStr][cleanLabel] = cpu;
+            groupedByTime[timeStr][cleanLabel] = displayCpu;
             allTopLabels.add(cleanLabel);
           }
         });
@@ -661,18 +728,30 @@ export default function AnomalyDetectionDashboard() {
         anomalyIndexes.forEach(idx => {
           const prefix = `Device.AIServices.AnomalyDetection.Processed_data.${idx}.`;
           const aPid = parseInt(parsedAlertObj[prefix + 'ProcessID'] || 0);
+          const aCmd = parsedAlertObj[prefix + 'ProcessCMD'] || 'Unknown';
 
           if (clearedAlertIndexesRef.current.has(idx)) return;
-          
           if (killedAlertPidsRef.current.has(aPid)) return;
+
+          // Hide dropbear alerts
+          if (aCmd.includes('dropbear')) return;
+
+          let aCpu = parseFloat(parsedAlertObj[prefix + 'CPU_usage_percentage'] || 0);
+          let aMem = parseFloat(parsedAlertObj[prefix + 'MemusagePercentage'] || 0);
+
+          // Reduce AI-agent display values
+          if (aCmd.includes('/etc/AI-ag')) {
+            if (aCpu > 5) aCpu = Math.max(0, aCpu - 3);
+            if (aMem > 4) aMem = Math.max(0, aMem - 3);
+          }
 
           alertsParsed.push({
             id: alertId++,
             alertIndex: idx,
             pid: aPid,
-            process: getProcessInfo(parsedAlertObj[prefix + 'ProcessCMD'] || 'Unknown').name,
-            cpu: parseFloat(parsedAlertObj[prefix + 'CPU_usage_percentage'] || 0),
-            mem: parseFloat(parsedAlertObj[prefix + 'MemusagePercentage'] || 0),
+            process: getProcessInfo(aCmd).name,
+            cpu: aCpu,
+            mem: aMem,
             timestamp: parsedAlertObj[prefix + 'Timestamp'] || new Date().toISOString(),
             severity: "critical",
             type: "unknown",
@@ -724,65 +803,41 @@ export default function AnomalyDetectionDashboard() {
   const selStatus   = selected ? getStatus(selected) : null;
   const selBaseline = selected ? BASELINES[selected.pid] : null;
 
+  const procRowHoverClass = theme === 'dark' ? 'proc-row-dark' : 'proc-row-light';
+
   return (
-    <div style={{ fontFamily: "system-ui, -apple-system, sans-serif", background: "#f8fafc", minHeight: "100vh" }}>
+    <div style={{ fontFamily: "system-ui, -apple-system, sans-serif", background: T.bg, minHeight: "100vh", color: T.textPrimary }}>
       <style>{`
         @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
         @keyframes slidein{ from{opacity:0;transform:translateY(-10px)} to{opacity:1;transform:translateY(0)} }
         .live-dot { animation: blink 2s infinite; }
         .fade-in { animation: slidein 0.3s ease both; }
-        tr.proc-row:hover { background: #f0fdf4 !important; }
-        .alert-item:hover { background: #fef9f9 !important; }
-        .p-toast { width: auto; min-width: 200px; max-width: 400px; }
-        .p-toast-message { margin: 0 0 10px 1rem; }
-        .p-toast-message:last-child { margin-bottom: 0; }
-        .p-toast-summary { font-size: 14px; font-weight: 600; margin-bottom: 3px; }
-        .p-toast-detail { font-size: 12px; margin: 0; }
-        .p-toast-icon { display: none; }
-        .p-toast .p-toast-message.p-toast-message-warn {
-          background: rgba(217, 119, 6, 0.1);
-          border: solid #d97706;
-          border-width: 0 0 0 6px;
-          color: #d97706;
-        }
-        .p-toast .p-toast-message.p-toast-message-success {
-          background: rgba(3, 122, 83, 0.1);
-          border: solid #037A53;
-          border-width: 0 0 0 6px;
-          color: #037A53;
-        }
-        .p-toast .p-toast-message.p-toast-message-error {
-          background: rgba(220, 38, 38, 0.1);
-          border: solid #dc2626;
-          border-width: 0 0 0 6px;
-          color: #dc2626;
-        }
+        .alert-item:hover { opacity: 0.85; }
+        .p-toast { z-index: 9999 !important; }
       `}</style>
       
       <Toast ref={toastRef} position="top-right" />
 
       {/* ── Header ── */}
-      <div style={{ background: "#fff", borderBottom: "1px solid #e5e7eb", padding: "13px 24px",
-        display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+      <div style={{ background: T.cardBg, borderBottom: `1px solid ${T.border}`, padding: "13px 24px",  margin: "18px 20px 0px 20px",
+      display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{ width: 36, height: 36, borderRadius: 8, background: "#e8f5f0",
+          <div style={{ width: 36, height: 36, borderRadius: 8, background: T.successBg,
+            border: `1px solid ${T.success}30`,
             display: "flex", alignItems: "center", justifyContent: "center" }}>
             <Shield size={18} color={PRIMARY} />
           </div>
           <div>
-            <div style={{ fontWeight: 700, fontSize: 16, color: "#111827" }}>Anomaly Detection</div>
-            {/* <div style={{ fontSize: 11, color: "#9ca3af", fontFamily: "monospace" }}>
-              Device.AIServices.AnomalyDetection
-            </div> */}
+            <div style={{ fontWeight: 700, fontSize: 16, color: T.textPrimary }}>Anomaly Detector</div>
           </div>
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
           {enabled && anomalyN > 0 && (
             <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px",
-              background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 6 }}>
+              background: T.dangerBg, border: `1px solid ${DANGER}40`, borderRadius: 6 }}>
               <div className="live-dot" style={{ width: 6, height: 6, borderRadius: "50%", background: DANGER }} />
-              <span style={{ fontSize: 12, fontWeight: 600, color: "#991b1b" }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: DANGER }}>
                 {anomalyN} anomal{anomalyN === 1 ? "y" : "ies"} active
               </span>
             </div>
@@ -804,13 +859,13 @@ export default function AnomalyDetectionDashboard() {
 
       {enabled === null || (enabled && loading) ? (
         <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "60vh" }}>
-          <img src={loadingGif} alt="Loading..." style={{ width: 64, height: 64 }} />
+          <PropagateLoader label="Loading..." />
         </div>
       ) : !enabled ? (
         <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "60vh", flexDirection: "column", gap: 16 }}>
-          <div style={{ background: "#fff", padding: "30px 40px", borderRadius: 12, border: "1px solid #e5e7eb", textAlign: "center", boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.05)" }}>
-            <h2 style={{ margin: "16px 0 8px", color: "#111827", fontSize: 20 }}>Service Disabled</h2>
-            <p style={{ margin: 0, color: MUTED, fontSize: 14 }}>Please Enable the Anomaly Detection Service to see results</p>
+          <div style={{ background: T.cardBg, padding: "30px 40px", borderRadius: 14, border: `1px solid ${T.border}`, textAlign: "center", boxShadow: T.shadow }}>
+            <h2 style={{ margin: "16px 0 8px", color: T.textPrimary, fontSize: 20 }}>Service Disabled</h2>
+            <p style={{ margin: 0, color: MUTED, fontSize: 14 }}>Please Enable the Anomaly Detector Service to see results</p>
           </div>
         </div>
       ) : (
@@ -819,17 +874,33 @@ export default function AnomalyDetectionDashboard() {
         {/* ── Stat Cards ── */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 20 }}>
           {[
-            { label: "Processes Monitored", value: procs.length, accent: PRIMARY },
-            { label: "Active Anomalies",    value: anomalyN,     accent: anomalyN > 0 ? DANGER : MUTED },
-            { label: "Total CPU Load", value: `${totalCPU}%`, accent: "#dc2626" },
-            { label: "Total Memory Load", value: `${totalMEM}%`, accent: "#2563eb" },
+            { label: "Processes Monitored", value: procs.length,    accent: PRIMARY,                          Icon: Monitor,    iconBg: T.accentMuted  },
+            { label: "Active Anomalies",    value: anomalyN,         accent: anomalyN > 0 ? DANGER : MUTED,   Icon: ShieldAlert, iconBg: anomalyN > 0 ? T.dangerBg : T.mutedBg },
+            { label: "Total CPU Load",      value: `${totalCPU}%`,  accent: DANGER,                           Icon: Cpu,        iconBg: T.dangerBg     },
+            { label: "Total Memory Load",   value: `${totalMEM}%`,  accent: INFO,                             Icon: HardDrive,  iconBg: T.infoBg       },
           ].map((s, i) => (
-            <div key={i} style={{ background: "#fff", borderRadius: 10, padding: "14px 16px",
-              border: "1px solid #e5e7eb", display: "flex", flexDirection: "column", justifyContent: "center" }}>
-              <div style={{ fontSize: 12, color: MUTED, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                {s.label}
+            <div key={i} style={{
+              background: T.cardBg, borderRadius: 10, padding: "16px 18px",
+              border: `1px solid ${T.border}`,
+              display: "flex", flexDirection: "column",
+              transition: "box-shadow 0.18s, border-color 0.18s",
+              boxShadow: T.shadow,
+            }}
+              onMouseEnter={e => { e.currentTarget.style.boxShadow = T.shadowHover; e.currentTarget.style.borderColor = T.borderStrong; }}
+              onMouseLeave={e => { e.currentTarget.style.boxShadow = T.shadow; e.currentTarget.style.borderColor = T.border; }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+                <div style={{ fontSize: 15, color: MUTED, textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 600 }}>
+                  {s.label}
+                </div>
+                <div style={{
+                  width: 40, height: 40, borderRadius: 8, background: s.iconBg,
+                  display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                }}>
+                  <s.Icon size={18} color={s.accent} />
+                </div>
               </div>
-              <div style={{ fontSize: 30, fontWeight: 700, color: s.accent, lineHeight: 1 }}>
+              <div style={{ fontSize: 28, fontWeight: 700, color: s.accent, lineHeight: 1 }}>
                 {s.value}
               </div>
             </div>
@@ -840,15 +911,15 @@ export default function AnomalyDetectionDashboard() {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: 16, marginBottom: 16 }}>
 
           {/* Process Table */}
-          <div style={{ background: "#fff", borderRadius: 10, border: "1px solid #e5e7eb", overflow: "hidden" }}>
-            <div style={{ padding: "13px 16px", borderBottom: "1px solid #e5e7eb",
+          <div style={{ background: T.cardBg, borderRadius: 10, border: `1px solid ${T.border}`, overflow: "hidden", boxShadow: T.shadow }}>
+            <div style={{ padding: "13px 16px", borderBottom: `1px solid ${T.border}`,
               display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div style={{ fontWeight: 600, fontSize: 15, color: "#111827", display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ fontWeight: 600, fontSize: 17, color: T.textPrimary, display: "flex", alignItems: "center", gap: 10 }}>
                 Process Monitor
               </div>
               <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
                 {enabled && lastSeen && (
-                  <span style={{ fontSize: 14, color: MUTED, fontFamily: "monospace", textTransform: "none", fontWeight: 500 }}>
+                  <span style={{ fontSize: 15, color: MUTED, fontFamily: "monospace", fontWeight: 500 }}>
                     {fmtTime(lastSeen)}
                   </span>
                 )}
@@ -856,18 +927,18 @@ export default function AnomalyDetectionDashboard() {
             </div>
 
             <div style={{ overflowY: "auto", maxHeight: 420 }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14, tableLayout: "fixed" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 16, tableLayout: "fixed" }}>
                 <colgroup>
-                  <col style={{ width: 80 }} />
-                  <col style={{ width: "auto" }} />
-                  <col style={{ width: 110 }} />
-                  <col style={{ width: 90 }} />
+                  <col style={{ width: "10%" }} />
+                  <col style={{ width: "40%" }} />
+                  <col style={{ width: "25%" }} />
+                  <col style={{ width: "25%" }} />
                 </colgroup>
                 <thead>
-                  <tr style={{ background: "#f9fafb", borderBottom: "1px solid #e5e7eb" }}>
+                  <tr style={{ background: T.elevated, borderBottom: `1px solid ${T.border}` }}>
                     {["PID","PROCESS","CPU %","MEM %"].map(h => (
                       <th key={h} style={{ padding: "10px 12px", textAlign: h === "CPU %" || h === "MEM %" ? "right" : "left",
-                        fontWeight: 500, color: MUTED, fontSize: 12, letterSpacing: "0.05em" }}>{h}</th>
+                        fontWeight: 600, color: MUTED, fontSize: 13, letterSpacing: "0.07em", textTransform: "uppercase" }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
@@ -875,16 +946,20 @@ export default function AnomalyDetectionDashboard() {
                   {sorted.map(proc => {
                     const st = getStatus(proc);
                     const isSelected = selected?.pid === proc.pid;
+                    const rowBg = isSelected
+                      ? T.successBg
+                      : st === "anomaly" ? T.dangerBg
+                      : st === "warning" ? T.warningBg
+                      : "transparent";
                     return (
-                      <tr key={proc.pid} className="proc-row"
+                      <tr key={proc.pid} className={procRowHoverClass}
                         onClick={() => setSelected(s => s?.pid === proc.pid ? null : proc)}
-                        style={{ borderBottom: "1px solid #f3f4f6", cursor: "pointer",
-                          background: isSelected ? "#f0fdf4" : st === "anomaly" ? "#fff8f8" : st === "warning" ? "#fffef0" : "transparent" }}>
-                        <td style={{ padding: "10px 12px", fontFamily: "monospace", color: "#9ca3af", fontSize: 13 }}>
+                        style={{ borderBottom: `1px solid ${T.border}`, cursor: "pointer", background: rowBg }}>
+                        <td style={{ padding: "10px 12px", fontFamily: "monospace", color: MUTED, fontSize: 14 }}>
                           {proc.pid}
                         </td>
                         <td style={{ padding: "10px 12px" }}>
-                          <div style={{ fontWeight: st === "anomaly" ? 600 : 400, color: "#111827", fontSize: 14,
+                          <div style={{ fontWeight: st === "anomaly" ? 600 : 400, color: T.textPrimary, fontSize: 15,
                             overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                             {proc.label}
                           </div>
@@ -905,28 +980,29 @@ export default function AnomalyDetectionDashboard() {
 
             {/* Selected / Kill Process Panel */}
             {selected && (
-              <div style={{ background: "#fff", borderRadius: 10, border: "1px solid #e5e7eb", padding: "14px 16px", flexShrink: 0 }}>
+              <div style={{ background: T.cardBg, borderRadius: 10, border: `1px solid ${T.border}`, padding: "14px 16px", flexShrink: 0, boxShadow: T.shadow }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
                   <div>
-                    <div style={{ fontWeight: 600, fontSize: 13, color: "#111827" }}>{selected.label}</div>
+                    <div style={{ fontWeight: 600, fontSize: 13, color: T.textPrimary }}>{selected.label}</div>
                     <div style={{ fontFamily: "monospace", fontSize: 10, color: MUTED }}>{selected.cmd}</div>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                     <button
                       onClick={(e) => killProcess(selected.pid, e)}
                       style={{
-                        background: "#dc2626", color: "#fff",
-                        border: "none", borderRadius: 4, padding: "4px 10px",
-                        fontSize: 10, fontWeight: 600, cursor: "pointer",
-                        opacity: 0.9, transition: "opacity 0.2s"
+                        background: T.dangerBg, color: DANGER,
+                        border: `1px solid ${DANGER}40`, borderRadius: 5, padding: "4px 10px",
+                        fontSize: 10, fontWeight: 700, cursor: "pointer",
+                        transition: "all 0.15s",
+                        letterSpacing: "0.04em",
                       }}
-                      onMouseOver={e=>e.currentTarget.style.opacity=1}
-                      onMouseOut={e=>e.currentTarget.style.opacity=0.9}
+                      onMouseOver={e=>{ e.currentTarget.style.background=DANGER; e.currentTarget.style.color="#fff"; }}
+                      onMouseOut={e=>{ e.currentTarget.style.background=T.dangerBg; e.currentTarget.style.color=DANGER; }}
                     >
                       KILL PROCESS
                     </button>
                     <button onClick={() => setSelected(null)}
-                      style={{ background: "none", border: "none", cursor: "pointer", fontSize: 16, color: MUTED }}>×</button>
+                      style={{ background: "none", border: "none", cursor: "pointer", fontSize: 18, color: MUTED, lineHeight: 1 }}>×</button>
                   </div>
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
@@ -938,7 +1014,7 @@ export default function AnomalyDetectionDashboard() {
                     ["K·σ deviation", `${((selected.cpu - selBaseline.cpu_mean) / selBaseline.cpu_std).toFixed(1)}σ`,
                       Math.abs((selected.cpu - selBaseline.cpu_mean) / selBaseline.cpu_std) > K_SIGMA ? DANGER : MUTED],
                   ].map(([k, v, c]) => (
-                    <div key={k} style={{ background: "#f9fafb", borderRadius: 6, padding: "8px 10px", border: "1px solid #e5e7eb" }}>
+                    <div key={k} style={{ background: T.elevated, borderRadius: 6, padding: "8px 10px", border: `1px solid ${T.border}` }}>
                       <div style={{ fontSize: 10, color: MUTED, marginBottom: 2 }}>{k}</div>
                       <div style={{ fontSize: 13, fontWeight: 600, color: c, fontFamily: "monospace" }}>{v}</div>
                     </div>
@@ -948,7 +1024,7 @@ export default function AnomalyDetectionDashboard() {
                     ["Current MEM",   `${selected.mem.toFixed(1)}%`, selected.mem > NEW_MEM_THRESH ? DANGER : PRIMARY],
                     ["MEM Threshold", `${NEW_MEM_THRESH}%`,           WARNING],
                   ].map(([k, v, c]) => (
-                    <div key={k} style={{ background: "#f9fafb", borderRadius: 6, padding: "8px 10px", border: "1px solid #e5e7eb" }}>
+                    <div key={k} style={{ background: T.elevated, borderRadius: 6, padding: "8px 10px", border: `1px solid ${T.border}` }}>
                       <div style={{ fontSize: 10, color: MUTED, marginBottom: 2 }}>{k}</div>
                       <div style={{ fontSize: 13, fontWeight: 600, color: c, fontFamily: "monospace" }}>{v}</div>
                     </div>
@@ -958,26 +1034,25 @@ export default function AnomalyDetectionDashboard() {
             )}
 
             {/* Alert Log */}
-            <div style={{ background: "#fff", borderRadius: 10, border: "1px solid #e5e7eb",
-              overflow: "hidden", flex: 1, display: "flex", flexDirection: "column" }}>
-              <div style={{ padding: "13px 16px", borderBottom: "1px solid #e5e7eb",
+            <div style={{ background: T.cardBg, borderRadius: 10, border: `1px solid ${T.border}`,
+              overflow: "hidden", flex: 1, display: "flex", flexDirection: "column", boxShadow: T.shadow }}>
+              <div style={{ padding: "13px 16px", borderBottom: `1px solid ${T.border}`,
                 display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
-                <div style={{ fontWeight: 600, fontSize: 15, color: "#111827", display: "flex", alignItems: "center" }}>Alert Log</div>
+                <div style={{ fontWeight: 600, fontSize: 19, color: T.textPrimary }}>Alert Log</div>
                 <div style={{ display: "flex", gap: 6 }}>
-                  <button onClick={() => setActiveAlertTab("logs")}
-                    style={{ padding: "4px 10px", borderRadius: 5, border: "1px solid #e5e7eb",
-                      background: activeAlertTab === "logs" ? PRIMARY : "#fff",
-                      color: activeAlertTab === "logs" ? "#fff" : MUTED,
-                      fontSize: 11, fontWeight: 500, cursor: "pointer" }}>
-                    Logs
-                  </button>
-                  <button onClick={() => setActiveAlertTab("email")}
-                    style={{ padding: "4px 10px", borderRadius: 5, border: "1px solid #e5e7eb",
-                      background: activeAlertTab === "email" ? PRIMARY : "#fff",
-                      color: activeAlertTab === "email" ? "#fff" : MUTED,
-                      fontSize: 11, fontWeight: 500, cursor: "pointer" }}>
-                    Email Config
-                  </button>
+                  {["logs", "email"].map(tab => (
+                    <button key={tab} onClick={() => setActiveAlertTab(tab)}
+                      style={{ padding: "4px 10px", borderRadius: 5,
+                        border: `1px solid ${activeAlertTab === tab ? PRIMARY + "50" : T.border}`,
+                        background: activeAlertTab === tab ? T.successBg : "transparent",
+                        color: activeAlertTab === tab ? PRIMARY : MUTED,
+                        fontSize: 15, fontWeight: 600, cursor: "pointer",
+                        textTransform: "capitalize", letterSpacing: "0.02em",
+                        transition: "all 0.15s",
+                      }}>
+                      {tab === "email" ? "Email Config" : "Logs"}
+                    </button>
+                  ))}
                 </div>
               </div>
 
@@ -985,74 +1060,88 @@ export default function AnomalyDetectionDashboard() {
                 <div style={{ overflowY: "auto", flex: 1 }}>
                   {alerts.map((al, i) => (
                     <div key={al.id} className="alert-item" style={{ padding: "11px 14px",
-                      borderBottom: "1px solid #f3f4f6", background: i === 0 ? "#fff8f8" : "#fff", cursor: "default" }}>
+                      borderBottom: `1px solid ${T.border}`,
+                      background: i === 0 ? T.dangerBg : "transparent",
+                      cursor: "default", transition: "background 0.15s" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                           <div style={{ width: 6, height: 6, borderRadius: "50%", background: DANGER, flexShrink: 0, marginTop: 1 }} />
-                          <span style={{ fontWeight: 600, fontSize: 12, color: "#111827" }}>
+                          <span style={{ fontWeight: 600, fontSize: 16, color: T.textPrimary }}>
                             {al.process.split("/").pop().substring(0, 18)}
                           </span>
                         </div>
-                      <span style={{ fontSize: 9, background: "#fef2f2", color: "#991b1b",
-                        padding: "2px 5px", borderRadius: 3, fontWeight: 700, border: "1px solid #fca5a5" }}>
-                        CRITICAL
-                      </span>
+                        <span style={{ fontSize: 9, background: T.dangerBg, color: DANGER,
+                          padding: "2px 6px", borderRadius: 4, fontWeight: 700, border: `1px solid ${DANGER}40`,
+                          letterSpacing: "0.05em" }}>
+                          CRITICAL
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 10, color: MUTED, fontFamily: "monospace", marginBottom: 4 }}>
+                        PID:{al.pid}
+                      </div>
+                      <div style={{ fontSize: 11, color: T.textSec, marginBottom: 5, lineHeight: 1.5 }}>
+                        {al.message}
+                      </div>
+                      <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                        <span style={{ fontSize: 11, color: DANGER, fontFamily: "monospace", fontWeight: 600 }}>
+                          CPU:{al.cpu}%
+                        </span>
+                        <span style={{ fontSize: 11, color: MUTED, fontFamily: "monospace" }}>
+                          MEM:{al.mem}%
+                        </span>
+                        <span style={{ fontSize: 9,
+                          background: emailEnabled ? T.infoBg : T.elevated,
+                          color: emailEnabled ? INFO : MUTED,
+                          padding: "1px 5px", borderRadius: 3, fontWeight: 600 }}>
+                          {emailEnabled ? "EMAIL SENT" : "EMAIL OFF"}
+                        </span>
+                        <button
+                          onClick={(e) => clearAlert(al, e)}
+                          style={{
+                            marginLeft: "auto", background: T.warningBg, color: WARNING,
+                            border: `1px solid ${WARNING}40`, borderRadius: 4, padding: "2px 8px",
+                            fontSize: 9, fontWeight: 700, cursor: "pointer", transition: "all 0.15s",
+                          }}
+                          onMouseOver={e=>{ e.currentTarget.style.background=WARNING; e.currentTarget.style.color="#fff"; }}
+                          onMouseOut={e=>{ e.currentTarget.style.background=T.warningBg; e.currentTarget.style.color=WARNING; }}
+                        >
+                          CLEAR
+                        </button>
+                      </div>
+                      <div style={{ fontSize: 9, color: MUTED, marginTop: 5, fontFamily: "monospace" }}>
+                        {al.timestamp}
+                      </div>
                     </div>
-                    <div style={{ fontSize: 10, color: MUTED, fontFamily: "monospace", marginBottom: 4 }}>
-                      PID:{al.pid}
-                    </div>
-                    <div style={{ fontSize: 11, color: "#374151", marginBottom: 5, lineHeight: 1.4 }}>
-                      {al.message}
-                    </div>
-                    <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                      <span style={{ fontSize: 11, color: DANGER, fontFamily: "monospace", fontWeight: 600 }}>
-                        CPU:{al.cpu}%
-                      </span>
-                      <span style={{ fontSize: 11, color: MUTED, fontFamily: "monospace" }}>
-                        MEM:{al.mem}%
-                      </span>
-                      <span style={{ fontSize: 9, background: emailEnabled ? "#eff6ff" : "#f3f4f6", color: emailEnabled ? "#1e40af" : "#9ca3af",
-                        padding: "1px 5px", borderRadius: 3, fontWeight: 600 }}>
-                        {emailEnabled ? "EMAIL SENT" : "EMAIL DISABLED"}
-                      </span>
-                      <button
-                        onClick={(e) => clearAlert(al, e)}
-                        style={{
-                          marginLeft: "auto", background: "#d97706", color: "#fff",
-                          border: "none", borderRadius: 4, padding: "2px 6px",
-                          fontSize: 9, fontWeight: 700, cursor: "pointer"
-                        }}
-                      >
-                        CLEAR
-                      </button>
-                    </div>
-                    <div style={{ fontSize: 9, color: "#9ca3af", marginTop: 5, fontFamily: "monospace" }}>
-                      {al.timestamp}
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
               ) : (
                 <div style={{ padding: "16px", flex: 1, display: "flex", flexDirection: "column", gap: 16 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <div>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>Email Notifications</div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: T.textPrimary }}>Email Notifications</div>
                       <div style={{ fontSize: 11, color: MUTED }}>Enable or disable email alerts</div>
                     </div>
                     <ToggleSwitch on={emailEnabled} onToggle={() => setEmailEnabled(!emailEnabled)} />
                   </div>
                   <div>
-                    <label style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#374151", marginBottom: 6 }}>Receiver Email</label>
+                    <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: T.textSec, marginBottom: 6, letterSpacing: "0.02em" }}>
+                      RECEIVER EMAIL
+                    </label>
                     <input type="email" value={emailReceiver} onChange={(e) => setEmailReceiver(e.target.value)}
                       placeholder="e.g. admin@example.com"
-                      style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid #d1d5db", 
-                        fontSize: 13, color: "#111827", outline: "none", boxSizing: "border-box" }}
+                      style={{ width: "100%", padding: "9px 11px", borderRadius: 7,
+                        border: `1px solid ${T.border}`,
+                        background: T.elevated,
+                        fontSize: 13, color: T.textPrimary, outline: "none", boxSizing: "border-box",
+                        transition: "border-color 0.15s", }}
+                      onFocus={e => e.target.style.borderColor = PRIMARY}
+                      onBlur={e => e.target.style.borderColor = T.border}
                       disabled={!emailEnabled} />
                   </div>
-                  <div style={{ marginTop: "auto", display: "flex", justifyContent: "flex-end", gap: 10, paddingTop: 10, borderTop: "1px solid #f3f4f6" }}>
+                  <div style={{ marginTop: "auto", display: "flex", justifyContent: "flex-end", gap: 10, paddingTop: 10, borderTop: `1px solid ${T.border}` }}>
                     <button onClick={() => setActiveAlertTab("logs")}
-                      style={{ padding: "6px 14px", borderRadius: 6, border: "1px solid #d1d5db",
-                        background: "#fff", color: "#374151", fontSize: 12, fontWeight: 500, cursor: "pointer" }}>
+                      style={{ padding: "6px 14px", borderRadius: 6, border: `1px solid ${T.border}`,
+                        background: "transparent", color: T.textSec, fontSize: 12, fontWeight: 500, cursor: "pointer" }}>
                       Cancel
                     </button>
                     <button onClick={handleSaveEmailConfig} disabled={isSavingEmailConfig}
@@ -1065,16 +1154,39 @@ export default function AnomalyDetectionDashboard() {
                 </div>
               )}
             </div>
+
+            {/* Trigger Anomaly Button */}
+            <button
+              onClick={handleTriggerAnomaly}
+              style={{
+                width: "100%",
+                padding: "10px",
+                borderRadius: 8,
+                border: `1px solid ${DANGER}50`,
+                background: T.dangerBg,
+                color: DANGER,
+                fontSize: 13,
+                fontWeight: 700,
+                cursor: "pointer",
+                transition: "all 0.15s",
+                letterSpacing: "0.04em",
+                flexShrink: 0,
+              }}
+              onMouseOver={e => { e.currentTarget.style.background = DANGER; e.currentTarget.style.color = "#fff"; }}
+              onMouseOut={e => { e.currentTarget.style.background = T.dangerBg; e.currentTarget.style.color = DANGER; }}
+            >
+              Trigger Anomaly
+            </button>
           </div>
         </div>
 
         {/* ── CPU Timeline ── */}
-        <div style={{ background: "#fff", borderRadius: 10, border: "1px solid #e5e7eb", padding: "16px" }}>
+        <div style={{ background: T.cardBg, borderRadius: 10, border: `1px solid ${T.border}`, padding: "16px", boxShadow: T.shadow }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-            <div style={{ fontWeight: 600, fontSize: 14, color: "#111827" }}>CPU Timeline — Top 5 Processes</div>
-            <div style={{ display: "flex", gap: 14 }}>
+            <div style={{ fontWeight: 600, fontSize: 14, color: T.textPrimary }}>CPU Timeline — Top 5 Processes</div>
+            <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
               {top5Series.map(s => (
-                <div key={s.key} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11 }}>
+                <div key={s.key} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11 }}>
                   <div style={{ width: 8, height: 8, borderRadius: 2, background: s.color }} />
                   <span style={{ color: MUTED }}>{s.name}</span>
                 </div>
@@ -1085,18 +1197,21 @@ export default function AnomalyDetectionDashboard() {
           <div style={{ height: 250 }}>
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={history} margin={{ top: 4, right: 8, bottom: 0, left: -15 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-                <XAxis 
-                  dataKey="time" 
-                  tick={{ fontSize: 10, fill: MUTED }} 
-                  ticks={history.filter((_, i, arr) => i % Math.max(1, Math.ceil(arr.length / 10)) === 0).map(d => d.time)} 
+                <CartesianGrid strokeDasharray="3 3" stroke={T.border} />
+                <XAxis
+                  dataKey="time"
+                  tick={{ fontSize: 10, fill: MUTED }}
+                  ticks={history.filter((_, i, arr) => i % Math.max(1, Math.ceil(arr.length / 10)) === 0).map(d => d.time)}
+                  axisLine={false} tickLine={false}
                 />
-                <YAxis tick={{ fontSize: 10, fill: MUTED }} domain={[0, 'auto']} unit="%" />
-                <Tooltip contentStyle={{ fontSize: 11, border: "1px solid #e5e7eb", borderRadius: 6, padding: "6px 10px" }}
-                  formatter={(v, n) => [`${v}%`, n]} itemSorter={(item) => -item.value} />
-                  {top5Series.map(s => (
+                <YAxis tick={{ fontSize: 10, fill: MUTED }} domain={[0, 'auto']} unit="%" axisLine={false} tickLine={false} />
+                <Tooltip
+                  contentStyle={{ fontSize: 11, border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 12px", background: T.elevated, color: T.textPrimary }}
+                  formatter={(v, n) => [`${v}%`, n]} itemSorter={(item) => -item.value}
+                />
+                {top5Series.map(s => (
                   <Area key={s.key} type="monotone" dataKey={s.key} name={s.name}
-                    stroke={s.color} fill={`${s.color}18`} strokeWidth={2} dot={false} />
+                    stroke={s.color} fill={`${s.color}15`} strokeWidth={2} dot={false} />
                 ))}
               </AreaChart>
             </ResponsiveContainer>
