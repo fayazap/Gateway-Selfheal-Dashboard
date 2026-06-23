@@ -91,6 +91,8 @@ const APP_LOGOS = {
   amazonalexa:      "/alexa.png",
   alexa:            "/alexa.png",
   cod_mobile:       "/cod.png",
+  linkedin:        "/linkedin.png",
+  Webex:            "/webex.png",
 };
 
 // ── Utility ─────────────────────────────────────────────────────
