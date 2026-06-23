@@ -557,17 +557,9 @@ export default function AnomalyDetectionDashboard() {
               return;
             }
 
-            // Reduce AI-agent display values instead of hiding it
-            let displayCpu = cpu;
-            let displayMem = mem;
-            if (cmd.includes('/etc/AI-ag')) {
-              if (cpu > 5) displayCpu = Math.max(0, cpu - 3);
-              if (mem > 4) displayMem = Math.max(0, mem - 3);
-            }
-
             const info = getProcessInfo(cmd);
             newProcs.push({
-              pid, cmd, label: info.name, category: info.category, cpu: displayCpu, mem: displayMem, type: "unknown", timestamp: ts
+              pid, cmd, label: info.name, category: info.category, cpu, mem, type: "unknown", timestamp: ts
             });
           }
         });
@@ -665,17 +657,11 @@ export default function AnomalyDetectionDashboard() {
               return;
             }
 
-            // Reduce AI-agent display CPU value
-            let displayCpu = cpu;
-            if (cmd.includes('/etc/AI-ag') && cpu > 5) {
-              displayCpu = Math.max(0, cpu - 3);
-            }
-
             const cleanLabel = getProcessInfo(cmd).name;
             if (!groupedByTime[timeStr]) {
               groupedByTime[timeStr] = { time: timeStr, _rawDate: tsDate };
             }
-            groupedByTime[timeStr][cleanLabel] = displayCpu;
+            groupedByTime[timeStr][cleanLabel] = cpu;
             allTopLabels.add(cleanLabel);
           }
         });
@@ -736,14 +722,8 @@ export default function AnomalyDetectionDashboard() {
           // Hide dropbear alerts
           if (aCmd.includes('dropbear')) return;
 
-          let aCpu = parseFloat(parsedAlertObj[prefix + 'CPU_usage_percentage'] || 0);
-          let aMem = parseFloat(parsedAlertObj[prefix + 'MemusagePercentage'] || 0);
-
-          // Reduce AI-agent display values
-          if (aCmd.includes('/etc/AI-ag')) {
-            if (aCpu > 5) aCpu = Math.max(0, aCpu - 3);
-            if (aMem > 4) aMem = Math.max(0, aMem - 3);
-          }
+          const aCpu = parseFloat(parsedAlertObj[prefix + 'CPU_usage_percentage'] || 0);
+          const aMem = parseFloat(parsedAlertObj[prefix + 'MemusagePercentage'] || 0);
 
           alertsParsed.push({
             id: alertId++,
