@@ -476,6 +476,79 @@ app.get('/api/channel_analyzer_logs/:filename', async (req, res) => {
   }
 });
 
+// API: Fetch raw nDPI traffic capture log used by the URL classification pipeline
+app.get('/api/url-classification/traffic-log', async (req, res) => {
+  try {
+    const fileContent = await sshExec('cat /etc/AI-agent/URLClassification/sim_logs/log1.txt');
+
+    if (!fileContent || fileContent.trim().startsWith('cat:')) {
+      return res.status(404).json({ error: 'Traffic log not found on gateway' });
+    }
+
+    res.type('text').send(fileContent);
+  } catch (err) {
+    res.status(500).json({ error: `SSH error: ${err.message}` });
+  }
+});
+
+// API: Fetch AI URL Classification edge data (whitelist/blacklist/blocked)
+const URL_CLASSIFICATION_FILES = {
+  'edge_benign.json': '/etc/AI-agent/URLClassification/edge/data/edge_benign.json',
+  'edge_blacklist.json': '/etc/AI-agent/URLClassification/edge/data/edge_blacklist.json',
+  'blocked.json': '/etc/AI-agent/URLClassification/edge/output/blocked.json',
+};
+
+app.get('/api/url-classification/:filename', async (req, res) => {
+  const { filename } = req.params;
+  const remotePath = URL_CLASSIFICATION_FILES[filename];
+
+  if (!remotePath) {
+    return res.status(400).json({ error: 'Invalid log file requested' });
+  }
+
+  try {
+    const fileContent = await sshExec(`cat ${remotePath}`);
+
+    if (!fileContent || fileContent.trim().startsWith('cat:')) {
+      return res.status(404).json({ error: 'Log file not found on gateway' });
+    }
+
+    res.type('json').send(fileContent);
+  } catch (err) {
+    res.status(500).json({ error: `SSH error: ${err.message}` });
+  }
+});
+
+// API: Fetch IoT fingerprinting DNS request log
+app.get('/api/iot-fingerprint/dns-log', async (req, res) => {
+  try {
+    const fileContent = await sshExec('cat /var/lib/cognitive-engine/dns_log.tsv');
+
+    if (!fileContent || fileContent.trim().startsWith('cat:')) {
+      return res.status(404).json({ error: 'DNS log not found on gateway' });
+    }
+
+    res.type('text').send(fileContent);
+  } catch (err) {
+    res.status(500).json({ error: `SSH error: ${err.message}` });
+  }
+});
+
+// API: Fetch IoT per-device risk scores
+app.get('/api/iot-fingerprint/scores', async (req, res) => {
+  try {
+    const fileContent = await sshExec('cat /var/lib/cognitive-engine/scores.tsv');
+
+    if (!fileContent || fileContent.trim().startsWith('cat:')) {
+      return res.status(404).json({ error: 'Scores file not found on gateway' });
+    }
+
+    res.type('text').send(fileContent);
+  } catch (err) {
+    res.status(500).json({ error: `SSH error: ${err.message}` });
+  }
+});
+
 // API: Configure a parameter
 app.post('/api/configure', async (req, res) => {
   const { param, value } = req.body;

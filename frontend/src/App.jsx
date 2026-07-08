@@ -7,7 +7,7 @@ import 'primereact/resources/themes/lara-dark-indigo/theme.css';
 import 'primereact/resources/primereact.css';
 import {
   BarChart2, Server, Activity, Wifi, Home, Info, LogOut,
-  ChevronDown, ChevronLeft, Menu, Sun, Moon, Zap,
+  ChevronDown, ChevronLeft, Menu, Sun, Moon, Zap, ShieldAlert,
 } from 'lucide-react';
 import { ThemeContext } from './contexts/ThemeContext';
 import SummaryPage from './pages/SummaryPage.jsx';
@@ -18,6 +18,7 @@ import LoginPage from './pages/LoginPage.jsx';
 import WifiChannelAnalyzerPage from './pages/WifiChannelAnalyzerPage.jsx';
 import AnomalyDetectionDashboard from './pages/AnomalyDetectionDashboard.jsx';
 import SmartBandwidthAllocator from './pages/SmartBandwidthAllocator.jsx';
+import UrlIotFingerprintingPage from './pages/UrlIotFingerprintingPage.jsx';
 
 /* ─── Custom SVG Icons ──────────────────────────────────── */
 const WaveIcon = ({ size = 18, color = 'currentColor' }) => (
@@ -38,6 +39,7 @@ const AI_CHILDREN = [
   { to: '/wifi-channel-analyzer', label: 'Smart Wi-Fi Channel Allocator',       Icon: ({ c }) => <Wifi size={19} color={c} /> },
   { to: '/anomaly-detection',     label: 'Anomaly Detector',    Icon: ({ c }) => <ShieldIcon size={19} color={c} /> },
   { to: '/smart-bandwidth',       label: 'Smart Bandwidth Allocator',      Icon: ({ c }) => <WaveIcon  size={19} color={c} /> },
+  { to: '/url-iot-fingerprinting', label: 'Smart Security Service',      Icon: ({ c }) => <ShieldAlert size={19} color={c} /> },
 ];
 const AI_PATHS = AI_CHILDREN.map(c => c.to);
 
@@ -138,7 +140,8 @@ function AppSidebar({ collapsed, setCollapsed, T, theme }) {
           {collapsed ? (
             <motion.img
               key="logo-sm"
-              src="/midco.png"
+              src="/tinno.png"
+              // src="/midco.png"
               alt="Logo"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -149,7 +152,8 @@ function AppSidebar({ collapsed, setCollapsed, T, theme }) {
           ) : (
             <motion.img
               key="logo-full"
-              src="/midco.png"
+              src="/tinno.png"
+              // src="/midco.png"
               alt="Logo"
               initial={{ opacity: 0, x: -8 }}
               animate={{ opacity: 1, x: 0 }}
@@ -325,6 +329,7 @@ function App() {
   const handleLogout = () => {
     setIsLoggedIn(false);
     localStorage.removeItem('sshHost');
+    localStorage.removeItem('urlIotFingerprinting.flowsAnalysed');
     navigate('/login');
   };
 
@@ -479,6 +484,7 @@ function App() {
                 <Route path="/wifi-channel-analyzer"  element={<WifiChannelAnalyzerPage />} />
                 <Route path="/anomaly-detection"      element={<AnomalyDetectionDashboard />} />
                 <Route path="/smart-bandwidth"        element={<SmartBandwidthAllocator />} />
+                <Route path="/url-iot-fingerprinting" element={<UrlIotFingerprintingPage />} />
                 <Route path="/login"                  element={<LoginPage setIsLoggedIn={setIsLoggedIn} />} />
               </Routes>
             </motion.div>

