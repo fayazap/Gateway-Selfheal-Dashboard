@@ -32,119 +32,119 @@ function LCMPage() {
     fetchData();
   }, []);
 
-  const fetchData = async () => {
+const fetchData = async () => {
   try {
-    const lcmResponse = await axios.get('/api/lcm');
-    const lcmData = lcmResponse.data;
-    const summaryResponse = await axios.get('/api/summary');
-    const summaryData = summaryResponse.data;
-    const totalContainers = parseInt(lcmData.SoftwareModules?.['SoftwareModules.ExecutionUnitNumberOfEntries']?.replace(/"/g, '') || '0');
-    const executionUnits = lcmData.ExecutionUnits || [];
+    const lcmResponse     = await axios.get(`/api/lcm?_=${Date.now()}`);
+    const lcmData         = lcmResponse.data;
+    const summaryResponse = await axios.get(`/api/summary?_=${Date.now()}`);
+    const summaryData     = summaryResponse.data;
+
+    const sm = lcmData.SoftwareModules || {};
+    const totalContainers = parseInt(sm.ExecutionUnitNumberOfEntries || '0', 10);
+    const executionUnits  = lcmData.ExecutionUnits  || [];
     const deploymentUnits = lcmData.DeploymentUnits || [];
 
+    const field = (unit, leafName) => {
+      const val = unit[leafName];
+      return (val !== undefined && val !== null && val !== '') ? val : 'N/A';
+    };
+
     const activeContainers = executionUnits.reduce((count, unit) => {
-      const statusKey = Object.keys(unit).find(key => key.endsWith('.Status'));
-      return count + (statusKey && unit[statusKey]?.replace(/"/g, '') === 'Active' ? 1 : 0);
+      return count + (field(unit, 'Status') === 'Active' ? 1 : 0);
     }, 0);
 
-    const totalCpuUsed = parseFloat(summaryData.cpuUsage?.replace('%', '') || '0');
-    const totalMemoryUsed = parseFloat(summaryData.memoryUsage?.replace(/"/g, '') || '0');
-
+    const totalCpuUsed    = parseFloat(summaryData.cpuUsage?.replace('%', '') || '0');
+    const totalMemoryUsed = parseFloat(summaryData.memoryUsage || '0');
     setSummary({ totalContainers, activeContainers, totalMemoryUsed, totalCpuUsed });
 
-    const allContainers = [];
-    const seenDuids = new Set();
     const containersMap = new Map();
 
-    // Process deploymentUnits first
-    deploymentUnits.forEach(unit => {
-      const duidKey = Object.keys(unit).find(key => key.endsWith('.DUID') || key.endsWith('.EUID'));
-      const uuidKey = Object.keys(unit).find(key => key.endsWith('.UUID'));
-      const nameKey = Object.keys(unit).find(key => key.endsWith('.Name'));
-      const statusKey = Object.keys(unit).find(key => key.endsWith('.Status'));
-      const urlKey = Object.keys(unit).find(key => key.endsWith('.URL'));
-      const descriptionKey = Object.keys(unit).find(key => key.endsWith('.Description'));
-      const vendorKey = Object.keys(unit).find(key => key.endsWith('.Vendor'));
-      const versionKey = Object.keys(unit).find(key => key.endsWith('.Version'));
-      const aliasKey = Object.keys(unit).find(key => key.endsWith('.Alias'));
-      const installedKey = Object.keys(unit).find(key => key.endsWith('.Installed') || key.endsWith('.CreationTime'));
-      const lastUpdateKey = Object.keys(unit).find(key => key.endsWith('.LastUpdate'));
+    // --- DeploymentUnits: key by DUID ---
+    deploymentUnits.forEach((unit) => {
+  const duid = field(unit, 'DUID') !== 'N/A' ? field(unit, 'DUID') : field(unit, 'UUID');
+  if (duid === 'N/A') return;
 
-      const duid = duidKey ? unit[duidKey]?.replace(/"/g, '') : uuidKey ? unit[uuidKey]?.replace(/"/g, '') : null;
+  containersMap.set(duid, {
+    unitIndex:        null,
+    deploymentIndex:  unit._instanceIndex,  // ← "3", not containersMap.size+1
+    index:            containersMap.size + 1, // display-only counter
+    name:             field(unit, 'Name'),
+    url:              field(unit, 'URL'),
+    description:      field(unit, 'Description'),
+    vendor:           field(unit, 'Vendor'),
+    version:          field(unit, 'Version'),
+    alias:            field(unit, 'Alias'),
+    duid,
+    installed:        field(unit, 'Installed') !== 'N/A'
+                        ? field(unit, 'Installed')
+                        : field(unit, 'CreationTime'),
+    lastUpdate:       field(unit, 'LastUpdate'),
+    deploymentStatus: field(unit, 'Status'),
+    executionStatus:  'N/A',
+    faultCode:        'N/A',
+    faultMessage:     'N/A',
+    uuid:             field(unit, 'UUID'),
+  });
+});
 
-      if (duid) {
-        const containerData = {
-          unitIndex: null, // Will be set when matching with ExecutionUnits
-          index: allContainers.length + 1,
-          name: unit[nameKey]?.replace(/"/g, '') || 'Unnamed',
-          url: urlKey ? unit[urlKey]?.replace(/"/g, '') : 'N/A',
-          description: descriptionKey ? unit[descriptionKey]?.replace(/"/g, '') : 'N/A',
-          vendor: vendorKey ? unit[vendorKey]?.replace(/"/g, '') : 'N/A',
-          version: versionKey ? unit[versionKey]?.replace(/"/g, '') : 'N/A',
-          alias: aliasKey ? unit[aliasKey]?.replace(/"/g, '') : 'N/A',
-          duid: duid || 'N/A',
-          installed: installedKey ? unit[installedKey]?.replace(/"/g, '') : 'N/A',
-          lastUpdate: lastUpdateKey ? unit[lastUpdateKey]?.replace(/"/g, '') : 'N/A',
-          deploymentStatus: statusKey ? unit[statusKey]?.replace(/"/g, '') : 'N/A',
-          executionStatus: 'N/A',
-          uuid: uuidKey ? unit[uuidKey]?.replace(/"/g, '') : 'N/A',
-        };
-        containersMap.set(duid, containerData);
-        seenDuids.add(duid);
+    // --- ExecutionUnits: merge by EUID matching DUID ---
+    executionUnits.forEach((unit) => {
+      // _instanceIndex is the real dmcli index ("2", "3", etc.) set by backend
+      const realIndex = unit._instanceIndex;
+      const euid = field(unit, 'EUID') !== 'N/A'
+        ? field(unit, 'EUID')
+        : field(unit, 'ExecEnvLabel');
+      if (euid === 'N/A') return;
+
+      const existing = containersMap.get(euid);
+      if (existing) {
+        existing.executionStatus = field(unit, 'Status');
+        existing.unitIndex       = realIndex;   // ← real dmcli index for start/stop calls
+        existing.faultCode       = field(unit, 'ExecutionFaultCode');
+        existing.faultMessage    = field(unit, 'ExecutionFaultMessage');
+      } else {
+        // EU with no matching DU
+        containersMap.set(euid, {
+          unitIndex:        realIndex,
+          index:            containersMap.size + 1,
+          name:             field(unit, 'Name'),
+          url:              'N/A',
+          description:      field(unit, 'Description'),
+          vendor:           field(unit, 'Vendor'),
+          version:          field(unit, 'Version'),
+          alias:            field(unit, 'Alias'),
+          duid:             euid,
+          installed:        'N/A',
+          lastUpdate:       'N/A',
+          deploymentStatus: 'N/A',
+          executionStatus:  field(unit, 'Status'),
+          faultCode:        field(unit, 'ExecutionFaultCode'),
+          faultMessage:     field(unit, 'ExecutionFaultMessage'),
+          uuid:             field(unit, 'EUID'),
+        });
       }
     });
 
-    // Process executionUnits and merge with deployment data, assign unitIndex
-    executionUnits.forEach((unit, unitIdx) => {
-      const duidKey = Object.keys(unit).find(key => key.endsWith('.DUID') || key.endsWith('.EUID'));
-      const uuidKey = Object.keys(unit).find(key => key.endsWith('.UUID'));
-      const nameKey = Object.keys(unit).find(key => key.endsWith('.Name'));
-      const statusKey = Object.keys(unit).find(key => key.endsWith('.Status'));
-      const aliasKey = Object.keys(unit).find(key => key.endsWith('.Alias'));
-      const installedKey = Object.keys(unit).find(key => key.endsWith('.Installed') || key.endsWith('.CreationTime'));
-      const lastUpdateKey = Object.keys(unit).find(key => key.endsWith('.LastUpdate'));
+    const allContainers = [...containersMap.values()];
 
-      const duid = duidKey ? unit[duidKey]?.replace(/"/g, '') : uuidKey ? unit[uuidKey]?.replace(/"/g, '') : null;
+    // Debug log — remove once confirmed working
+    console.log('Containers after merge:',
+      allContainers.map(c => ({
+        name: c.name,
+        unitIndex: c.unitIndex,
+        executionStatus: c.executionStatus,
+        duid: c.duid,
+      }))
+    );
 
-      if (duid) {
-        let containerData = containersMap.get(duid);
-        if (!containerData) {
-          containerData = {
-            unitIndex: unitIdx + 1, // Assign unitIndex based on executionUnits order (1-based)
-            index: allContainers.length + 1,
-            name: unit[nameKey]?.replace(/"/g, '') || 'Unnamed',
-            url: 'N/A',
-            description: 'N/A',
-            vendor: 'N/A',
-            version: 'N/A',
-            alias: unit[aliasKey]?.replace(/"/g, '') || 'N/A',
-            duid: duid || 'N/A',
-            installed: unit[installedKey]?.replace(/"/g, '') || 'N/A',
-            lastUpdate: lastUpdateKey ? unit[lastUpdateKey]?.replace(/"/g, '') : 'N/A',
-            deploymentStatus: 'N/A',
-            executionStatus: statusKey ? unit[statusKey]?.replace(/"/g, '') : 'N/A',
-            uuid: uuidKey ? unit[uuidKey]?.replace(/"/g, '') : 'N/A',
-          };
-          seenDuids.add(duid);
-        } else {
-          containerData.executionStatus = statusKey ? unit[statusKey]?.replace(/"/g, '') : containerData.executionStatus;
-          containerData.unitIndex = unitIdx + 1; // Assign unitIndex
-        }
-        containersMap.set(duid, containerData);
-      }
-    });
-
-    containersMap.forEach(value => allContainers.push(value));
-
-    const newExistingContainers = allContainers;
-    setExistingContainers(newExistingContainers);
+    setExistingContainers(allContainers);
     setContainers(lcmData.ContainerLibrary || []);
 
-    const allUuids = new Set([
-      ...newExistingContainers.map(c => c.uuid),
-      ...containers.map(c => c.uuid),
-    ].filter(uuid => uuid !== 'N/A' && uuid !== undefined));
+    const allUuids = new Set(
+      allContainers.map(c => c.uuid).filter(uuid => uuid !== 'N/A')
+    );
     setUsedUuids(allUuids);
+
   } catch (error) {
     console.error('Error fetching data:', error);
   }
@@ -189,93 +189,147 @@ const handleDeleteContainer = async (index) => {
   }
 };
 
-  const handleInstallContainer = async (index) => {
-    const container = containers[index];
-    try {
-      const isAlreadyInstalled = existingContainers.some(c => c.url === container.url);
-      if (isAlreadyInstalled) {
-        alert(`Container ${container.name} is already installed on the device.`);
-        setShowInstallConfirm(null);
-        return;
-      }
-
-      const generateUniqueLast12 = () => Math.floor(Math.random() * 0x1000000000000).toString(16).padStart(12, '0');
-      let newUuid = `00000000-0000-5000-b000-${generateUniqueLast12()}`;
-      let attempts = 0;
-      while (usedUuids.has(newUuid) && attempts < 100) {
-        newUuid = `00000000-0000-5000-b000-${generateUniqueLast12()}`;
-        attempts++;
-      }
-      if (attempts >= 100) throw new Error('Unable to generate a unique UUID after 100 attempts');
-
-      usedUuids.add(newUuid);
-      setUsedUuids(new Set(usedUuids));
-
-      const response = await axios.post('/api/lcm/install', { url: container.url, uuid: newUuid, name: container.name });
-      if (response.data.success) {
-        const newContainers = containers.filter((_, i) => i !== index);
-        setContainers(newContainers);
-        setShowInstallConfirm(null);
-        await fetchData();
-      }
-    } catch (err) {
-      console.error('Error installing container:', err);
-    }
-  };
-
-  const handleStartContainer = async (index) => {
+const handleInstallContainer = async (index) => {
+  const container = containers[index];
   try {
-    const container = existingContainers[index];
-    if (container.unitIndex) {
-      console.log("Starting container with unitIndex:", container.unitIndex);
-      await axios.post('/api/lcm/start', { unitIndex: container.unitIndex });
-      setShowStartConfirm(null);
-      await fetchData();
-    } else {
-      console.warn("No unitIndex found for container:", container.name);
+    // Check by URL (dmcli value includes full docker:// URL so this still works)
+    const isAlreadyInstalled = existingContainers.some(
+      c => c.url !== 'N/A' && c.url === container.url
+    );
+    if (isAlreadyInstalled) {
+      console.error(`Container ${container.name} is already installed on the device.`);
+      setShowInstallConfirm(null);
+      return;
+    }
+
+    // Generate UUID in the format cthulhu expects
+    const generateUniqueLast12 = () =>
+      Math.floor(Math.random() * 0x1000000000000)
+        .toString(16)
+        .padStart(12, '0');
+
+    let newUuid = `00000000-0000-5000-b000-${generateUniqueLast12()}`;
+    let attempts = 0;
+    while (usedUuids.has(newUuid) && attempts < 100) {
+      newUuid = `00000000-0000-5000-b000-${generateUniqueLast12()}`;
+      attempts++;
+    }
+    if (attempts >= 100) throw new Error('Unable to generate a unique UUID after 100 attempts');
+
+    usedUuids.add(newUuid);
+    setUsedUuids(new Set(usedUuids));
+
+    const response = await axios.post('/api/lcm/install', {
+      url: container.url,
+      uuid: newUuid,
+      name: container.name,
+      autostart: container.autostart ?? true,  // default autostart true
+    });
+
+    if (response.data.success) {
+      console.log(`Container ${container.name} installed successfully.`);
+      setContainers(prev => prev.filter((_, i) => i !== index));
+      setShowInstallConfirm(null);
+      await fetchData(); // re-poll dmcli to reflect new state
     }
   } catch (err) {
-    console.error('Error starting container:', err);
+    console.error('Error installing container:', err);
+    console.error(`Install failed: ${err.response?.data?.error || err.message}`);
   }
 };
 
 const handleStopContainer = async (index) => {
   try {
     const container = existingContainers[index];
-    if (container.unitIndex) {
-      console.log("Stopping container with unitIndex:", container.unitIndex);
-      const updatedContainers = [...existingContainers];
-      updatedContainers[index].executionStatus = 'Idle'; // Optimistic update
-      setExistingContainers(updatedContainers);
-      setShowStopConfirm(null);
-      await axios.post('/api/lcm/stop', { unitIndex: container.unitIndex });
-      await fetchData(); // Refresh with actual data
-    } else {
-      console.warn("No unitIndex found for container:", container.name);
+    if (container.unitIndex === undefined || container.unitIndex === null) {
+      console.warn("No unitIndex for container:", container.name);
+      return;
     }
+
+    // Optimistic update to 'Stopping...' while backend polls
+    const optimistic = [...existingContainers];
+    optimistic[index] = { ...optimistic[index], executionStatus: 'Stopping...' };
+    setExistingContainers(optimistic);
+    setShowStopConfirm(null);
+
+    const response = await axios.post('/api/lcm/stop', { unitIndex: container.unitIndex });
+    
+    // Use confirmed status from backend poll, then full refresh
+    if (response.data.status) {
+      const confirmed = [...existingContainers];
+      confirmed[index] = { ...confirmed[index], executionStatus: response.data.status };
+      setExistingContainers(confirmed);
+    }
+
+    await fetchData(); // Full refresh to sync everything
+
   } catch (err) {
     console.error('Error stopping container:', err);
     await fetchData(); // Revert on failure
   }
 };
 
+const handleStartContainer = async (index) => {
+  try {
+    const container = existingContainers[index];
+    if (container.unitIndex === undefined || container.unitIndex === null) {
+      console.warn("No unitIndex for container:", container.name);
+      return;
+    }
+
+    const optimistic = [...existingContainers];
+    optimistic[index] = { ...optimistic[index], executionStatus: 'Starting...' };
+    setExistingContainers(optimistic);
+    setShowStartConfirm(null);
+
+    const response = await axios.post('/api/lcm/start', { unitIndex: container.unitIndex });
+
+    if (response.data.status) {
+      const confirmed = [...existingContainers];
+      confirmed[index] = { ...confirmed[index], executionStatus: response.data.status };
+      setExistingContainers(confirmed);
+    }
+
+    await fetchData();
+
+  } catch (err) {
+    console.error('Error starting container:', err);
+    await fetchData();
+  }
+};
+
 const handleUninstallContainer = async (index) => {
   try {
     const container = existingContainers[index];
-    if (container.unitIndex && container.index) {
-      await axios.post('/api/lcm/uninstall', {
-        unitIndex: container.unitIndex,
-        deploymentIndex: container.index, // Use index for deploymentUnit, adjust if needed
-      });
-      const newContainers = existingContainers.filter((_, i) => i !== index);
-      setExistingContainers(newContainers);
-      setShowUninstallConfirm(null);
-      await fetchData();
-    } else {
-      console.warn("No unitIndex or index found for container:", container.name);
+
+    console.log('Uninstall target:', {
+      name:            container.name,
+      unitIndex:       container.unitIndex,       // EU dmcli index e.g. "3"
+      deploymentIndex: container.deploymentIndex, // DU dmcli index e.g. "3"
+      displayIndex:    container.index,           // array counter — NOT used for dmcli
+    });
+
+    if (container.unitIndex === undefined || container.unitIndex === null) {
+      console.warn("No unitIndex for container:", container.name);
+      return;
     }
+    if (container.deploymentIndex === undefined || container.deploymentIndex === null) {
+      console.warn("No deploymentIndex for container:", container.name);
+      return;
+    }
+
+    setShowUninstallConfirm(null);
+
+    await axios.post('/api/lcm/uninstall', {
+      unitIndex:       container.unitIndex,       // ← real EU index
+      deploymentIndex: container.deploymentIndex, // ← real DU index, NOT container.index
+    });
+
+    await fetchData();
+
   } catch (err) {
     console.error('Error uninstalling container:', err);
+    await fetchData();
   }
 };
 

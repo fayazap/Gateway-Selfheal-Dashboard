@@ -1,0 +1,12 @@
+[
+  {
+    "url": "docker://registry.gitlab.com/harisowndharya/growmem:v3.0",
+    "name": "Memleak",
+    "description": "aghbnjmk,gl.;/'",
+    "vendor": "Hari",
+    "version": "3",
+    "autostart": true,
+    "uuid": "1785325995805",
+    "addedAt": "2026-07-29T11:53:15.805Z"
+  }
+]

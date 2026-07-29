@@ -12,10 +12,10 @@ app.use(bodyParser.json());
 
 // SSH config using environment variables
 const sshConfig = {
-  host: process.env.SSH_HOST || '192.168.246.151',
-  port: 2266,
+  host: process.env.SSH_HOST || '192.168.246.76',
+  port: 22,
   username: process.env.SSH_USERNAME || 'root',
-  password: process.env.SSH_PASSWORD || 'root'
+  password: process.env.SSH_PASSWORD || 'Hari@123'
 };
 
 // Helper to execute SSH command and return output
@@ -25,18 +25,20 @@ function sshExec(command) {
     conn.on('ready', () => {
       conn.exec(command, (err, stream) => {
         if (err) return reject(err);
-        let data = '';
-        stream.on('data', (chunk) => { data += chunk; });
-        stream.stderr.on('data', (chunk) => { data += chunk; });
+        let stdout = '';
+        let stderr = '';
+        stream.on('data', (chunk) => { stdout += chunk; });
+        stream.stderr.on('data', (chunk) => { stderr += chunk; });
         stream.on('close', (code) => {
           conn.end();
-          if (code !== 0) {
-            console.log(`Command "${command}" failed with code ${code}, output: ${data}`);
-          }
-          resolve(data.trim());
+          // dmcli exits 1 even on success — never treat non-zero as fatal
+          // resolve with stdout; caller checks content for real errors
+          resolve(stdout.trim());
         });
       });
-    }).connect(sshConfig).on('error', reject);
+    })
+    .connect(sshConfig)
+    .on('error', reject);
   });
 }
 
@@ -51,6 +53,33 @@ function parseUbusOutput(output) {
       console.log(`Parsed: ${key.trim()} = ${value.trim()}`); // Debug log
     }
   });
+  return result;
+}
+
+// Parse dmcli output into a flat object
+function parseDmcliOutput(output) {
+  const result = {};
+  const lines = output.split('\n');
+
+  for (let i = 0; i < lines.length; i++) {
+    // Match: "Parameter   N name: Device.SoftwareModules.Foo"
+    const nameMatch = lines[i].match(/Parameter\s+\d+\s+name:\s+(.+)/);
+    if (!nameMatch) continue;
+
+    const fullKey = nameMatch[1].trim();
+    // Strip "Device." prefix → "SoftwareModules.ExecEnv.1.Status"
+    const key = fullKey.startsWith('Device.') ? fullKey.slice(7) : fullKey;
+
+    // Value is on the very next line: "               type:  string,    value: Up"
+    // Use greedy match after last "value:" to handle values containing colons (e.g. URLs, datetimes)
+    const valueLine = lines[i + 1] || '';
+    const valueMatch = valueLine.match(/value:\s*(.*)/);
+    const value = valueMatch ? valueMatch[1].trim() : '';
+
+    result[key] = value;
+    i++; // skip the consumed value line
+  }
+
   return result;
 }
 
@@ -97,20 +126,18 @@ async function saveStats(filePath, stats) {
 // API: Fetch device summary
 app.get('/api/summary', async (req, res) => {
   try {
-    const hostname = await sshExec('cat /proc/sys/kernel/hostname');
-    const uptime = await sshExec('uptime -p || uptime | cut -d"," -f1 | cut -d" " -f3-');
+    const hostname = await sshExec('cat /proc/sys/kernel/hostname || dmcli eRT getv Device.DeviceInfo.X_COMCAST-COM_CM_MAC 2>/dev/null | awk \'/value:/{print $NF}\'');
+    const uptime = await sshExec("uptime | awk -F'up ' '{print $2}' | awk -F',' '{print $1}'");
     const cpuUsage = await sshExec('awk \'/^cpu / {usage=($2+$4)*100/($2+$4+$5); printf "%.1f%%\\n", usage}\' /proc/stat');
-    const memoryUsage = await sshExec('free | awk \'/Mem:/ {print int($3*100/$2) "%"}\'');
-    const ipAddress = await sshExec('ip route get 8.8.8.8 | awk \'{print $7; exit}\'');
-    const macAddress = await sshExec('cat /sys/class/net/$(ip route show default | awk \'/default/ {print $5}\')/address');
-    const defaultGateway = await sshExec('ip route | grep default | awk \'{print $3}\' | head -1');
-    const dnsServers = await sshExec('cat /etc/resolv.conf | grep nameserver | awk \'{print $2}\' | tr \'\\n\' \', \' | sed \'s/,$//\'');
-
-    const firmwareVersion = await sshExec('cat /etc/openwrt_release | grep DISTRIB_RELEASE | cut -d"\'" -f2 || uname -r');
+    const memoryUsage = await sshExec("free 2>/dev/null | awk '/Mem:/ {print int($3*100/$2) \"%\"}' | grep -v '^$' || " + "awk '/MemTotal/{t=$2} /MemAvailable/{a=$2} END{print int((t-a)*100/t) \"%\"}' /proc/meminfo");
+    const ipAddress = await sshExec("/sbin/ip route get 8.8.8.8 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i==\"src\") print $(i+1); exit}' || " + "/sbin/ip -4 addr 2>/dev/null | awk '/inet / && !/127.0.0.1/{print $2}' | cut -d/ -f1 | head -n1");
+    const macAddress = await sshExec("iface=$(/sbin/ip route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i==\"dev\") print $(i+1); exit}'); " + "[ -n \"$iface\" ] && cat /sys/class/net/$iface/address 2>/dev/null || " + "/sbin/ip link 2>/dev/null | awk '/ether/{print $2; exit}'");
+    const defaultGateway = await sshExec('/sbin/ip route show default | awk \'{print $3; exit}\'');
+    const dnsServers = await sshExec('dmcli eRT getv Device.DNS.Client.Server.1.DNSServer 2>/dev/null | awk \'/value:/{print $NF}\' || grep nameserver /etc/resolv.conf /tmp/resolv.conf 2>/dev/null | awk \'{print $2}\' | sort -u | tr \'\\n\' \',\' | sed \'s/,$//\'');
+    const firmwareVersion = await sshExec("awk -F= '/^VERSION=/{gsub(/[\" ]/,\"\",$2); print $2; exit}' /etc/rdk-image-version 2>/dev/null || " + "awk -F= '/^BRANCH=/{gsub(/[\" ]/,\"\",$2); print $2; exit}' /etc/rdk-image-version 2>/dev/null || " + "dmcli eRT getv Device.DeviceInfo.SoftwareVersion 2>/dev/null | awk '/value:/{print $NF}' || " + "uname -r");
     const deviceModelRaw = await sshExec('cat /proc/device-tree/model');
-    const deviceModel = deviceModelRaw ? deviceModelRaw.trim() : 'N/A';
-    const manufacturer = await sshExec('cat /proc/device-tree/compatible | cut -d, -f1 || echo "Unknown"');
-
+    const deviceModel = await sshExec('dmcli eRT getv Device.DeviceInfo.ModelName 2>/dev/null | awk \'/value:/{print $NF}\' || cat /proc/device-tree/model 2>/dev/null || echo "B521FG"');
+    const manufacturer = await sshExec('dmcli eRT getv Device.DeviceInfo.Manufacturer 2>/dev/null | awk \'/value:/{print $NF}\' || echo "Tinno"');
     const cpuStats = await loadStats('cpu_stats.json');
     const newCpuValue = parseFloat(cpuUsage) || 0;
     cpuStats.push({ time: new Date().toISOString(), value: newCpuValue });
@@ -211,42 +238,86 @@ app.get('/api/stats', async (req, res) => {
   }
 });
 
-// API: Fetch LCM data
+// API: Fetch LCM data (dmcli backend)
 app.get('/api/lcm', async (req, res) => {
   try {
-    // Execute the mount command after successful connection
-    await sshExec('mount -t ext4 /dev/mmcblk0p20 /lcm');
-    console.log('Mounted /dev/mmcblk0p20 to /lcm successfully');
-    const output = await sshExec('ubus-cli SoftwareModules.?');
-    const data = parseUbusOutput(output);
+    // Prevent nginx/browser from caching this — data changes after install/start/stop
+    res.set('Cache-Control', 'no-store');
+    const output = await sshExec('dmcli eRT getv Device.SoftwareModules.');
 
-    const executionUnits = [];
-    const totalUnits = parseInt(data['SoftwareModules.ExecutionUnitNumberOfEntries'] || 0);
-    for (let i = 1; i <= totalUnits; i++) {
-      const unitOutput = await sshExec(`ubus-cli SoftwareModules.ExecutionUnit.${i}.?`);
-      const unitData = parseUbusOutput(unitOutput);
-      executionUnits.push(unitData);
+    if (!output.includes('Parameter') || !output.includes('SoftwareModules')) {
+      throw new Error('dmcli returned no SoftwareModules data: ' + output.slice(0, 200));
     }
 
-    const deploymentUnits = [];
-    const totalDeployments = parseInt(data['SoftwareModules.DeploymentUnitNumberOfEntries'] || 0);
-    for (let i = 1; i <= totalDeployments; i++) {
-      const unitOutput = await sshExec(`ubus-cli SoftwareModules.DeploymentUnit.${i}.?`);
-      const unitData = parseUbusOutput(unitOutput);
-      deploymentUnits.push(unitData);
+    const flat = parseDmcliOutput(output);
+
+    // Discover actual instance indices from flat keys instead of assuming 1..N
+    function discoverIndices(prefix) {
+      // prefix e.g. "SoftwareModules.ExecutionUnit."
+      // keys look like "SoftwareModules.ExecutionUnit.2.Status"
+      const indices = new Set();
+      for (const k of Object.keys(flat)) {
+        if (k.startsWith(prefix)) {
+          const rest = k.slice(prefix.length);       // "2.Status"
+          const idx = rest.split('.')[0];             // "2"
+          if (/^\d+$/.test(idx)) indices.add(idx);
+        }
+      }
+      return [...indices].sort((a, b) => parseInt(a) - parseInt(b));
     }
 
-    // Load container library
+    function extractInstance(prefix) {
+      // prefix e.g. "SoftwareModules.ExecutionUnit.2."
+      const obj = {};
+      for (const [k, v] of Object.entries(flat)) {
+        if (k.startsWith(prefix)) {
+          obj[k.slice(prefix.length)] = v;
+        }
+      }
+      return obj;
+    }
+
+    const softwareModules = {
+      ExecutionUnitNumberOfEntries:  flat['SoftwareModules.ExecutionUnitNumberOfEntries']  || '0',
+      ExecEnvNumberOfEntries:        flat['SoftwareModules.ExecEnvNumberOfEntries']        || '0',
+      DeploymentUnitNumberOfEntries: flat['SoftwareModules.DeploymentUnitNumberOfEntries'] || '0',
+      NetworkConfig: {
+        DefaultBridge:        flat['SoftwareModules.NetworkConfig.DefaultBridge']        || '',
+        DefaultFirewallChain: flat['SoftwareModules.NetworkConfig.DefaultFirewallChain'] || '',
+      },
+    };
+
+    // Use discovered indices — handles gaps like [2], [1,3], etc.
+    const execEnvIndices    = discoverIndices('SoftwareModules.ExecEnv.');
+    const execUnitIndices   = discoverIndices('SoftwareModules.ExecutionUnit.');
+    const deployUnitIndices = discoverIndices('SoftwareModules.DeploymentUnit.');
+
+    const execEnvs = execEnvIndices.map(i =>
+      extractInstance(`SoftwareModules.ExecEnv.${i}.`)
+    );
+    
+    const executionUnits = execUnitIndices.map(i => ({
+      _instanceIndex: i,                                    
+      ...extractInstance(`SoftwareModules.ExecutionUnit.${i}.`),
+    }));
+
+    const deploymentUnits = deployUnitIndices.map(i => ({
+      _instanceIndex: i,
+      ...extractInstance(`SoftwareModules.DeploymentUnit.${i}.`),
+   }));
+
     const containerLibrary = await loadData('containers.json');
 
     res.json({
-      SoftwareModules: data,
-      ExecutionUnits: executionUnits,
-      DeploymentUnits: deploymentUnits,
+      SoftwareModules:  softwareModules,
+      ExecEnvs:         execEnvs,
+      ExecutionUnits:   executionUnits,
+      DeploymentUnits:  deploymentUnits,
       ContainerLibrary: containerLibrary,
     });
+
   } catch (err) {
-    res.status(500).json({ error: `SSH error: ${err.message}` });
+    res.status(500).json({ error: `LCM error: ${err.message}` });
   }
 });
 
@@ -297,18 +368,103 @@ app.post('/api/lcm/delete', async (req, res) => {
 });
 
 // API: Install container on device
-// API: Install container on device
 app.post('/api/lcm/install', async (req, res) => {
   const { url, uuid, name, autostart } = req.body;
   try {
-    const autoStartValue = autostart === true ? '1' : '0'; // Convert true/false to 1/0 as string
-    const installCommand = `ubus-cli "SoftwareModules.InstallDU(ExecutionEnvRef='generic', URL='${url}', UUID='${uuid}', Privileged=false, NumRequiredUIDs=10, HostObject=[{Source='/tmp/usp_cli',Destination='/var/usp_cli', Options='type=mount,bind'}], AutoStart=${autoStartValue})"`;
-    await sshExec(installCommand);
-    console.log(`Installed container: ${name} with UUID: ${uuid}, Autostart: ${autoStartValue}`);
-    await new Promise(resolve => setTimeout(resolve, 3000));
-    await sshExec('/etc/init.d/timingila restart'); // Restart to rearrange indices
-    res.json({ success: true, message: 'Container installed on device' });
+    const line1 = `method_values Device.SoftwareModules.InstallDU() URL string ${url} UUID string ${uuid} ExecutionEnvRef string generic NumRequiredUIDs uint32 10 Privileged boolean true`;
+
+    const writeCommand = `printf '${line1}\\nquit\\n' > /tmp/du.txt`;
+    await sshExec(writeCommand);
+
+    const verify = await sshExec('cat /tmp/du.txt');
+    console.log(`/tmp/du.txt content:\n${verify}`);
+
+    const installOutput = await sshExec('rbuscli -i < /tmp/du.txt');
+    console.log(`InstallDU output for ${name} (${uuid}):\n${installOutput}`);
+
+    if (
+      installOutput.toLowerCase().includes('invalid') ||
+      installOutput.toLowerCase().includes('error') ||
+      installOutput.toLowerCase().includes('failed')
+    ) {
+      throw new Error(`rbuscli reported failure: ${installOutput}`);
+    }
+
+    console.log(`Installed container: ${name} with UUID: ${uuid}`);
+
+    // Wait for cthulhu to activate the container
+    await new Promise(resolve => setTimeout(resolve, 5000));
+
+    const restartOutput = await sshExec('/etc/init.d/timingila restart');
+    console.log(`timingila restart: ${restartOutput}`);
+
+    // Give timingila time to re-index TR-181 instances
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    // --- Autostart handling ---
+    // Container always comes up Active after install.
+    // If autostart is false, stop it now to bring it to Idle.
+    if (autostart !== true) {
+      console.log(`Autostart is false for ${name} — stopping container after install...`);
+
+      // Discover the new ExecutionUnit index by matching UUID in the flat dmcli output
+      const dmcliOutput = await sshExec('dmcli eRT getv Device.SoftwareModules.');
+      const flat = parseDmcliOutput(dmcliOutput);
+
+      // Find the EU index whose UUID field matches what we just installed
+      // ExecEnvLabel on the EU matches the DUID on the DU, both derived from the UUID we passed
+      // The simplest match: find an EU whose EUID appears in keys and whose parent DU has our UUID
+      let newUnitIndex = null;
+      for (const [k, v] of Object.entries(flat)) {
+        // Look for DeploymentUnit.N.UUID = our uuid
+        const duUuidMatch = k.match(/^SoftwareModules\.DeploymentUnit\.(\d+)\.UUID$/);
+        if (duUuidMatch && v === uuid) {
+          const duIdx = duUuidMatch[1];
+          // DUID of this DU
+          const duid = flat[`SoftwareModules.DeploymentUnit.${duIdx}.DUID`] || '';
+          // Find the EU whose EUID matches this DUID
+          for (const [ek] of Object.entries(flat)) {
+            const euEuidMatch = ek.match(/^SoftwareModules\.ExecutionUnit\.(\d+)\.EUID$/);
+            if (euEuidMatch && flat[ek] === duid) {
+              newUnitIndex = euEuidMatch[1];
+              break;
+            }
+          }
+          break;
+        }
+      }
+
+      if (newUnitIndex) {
+        console.log(`Found new ExecutionUnit.${newUnitIndex} — sending Idle request...`);
+
+        const stopLine = `method_values Device.SoftwareModules.ExecutionUnit.${newUnitIndex}.SetRequestedState() RequestedState string Idle`;
+        await sshExec(`printf '${stopLine}\\nquit\\n' > /tmp/stop.txt`);
+        const stopOutput = await sshExec('rbuscli -i < /tmp/stop.txt');
+        console.log(`Post-install stop output: "${stopOutput}"`);
+
+        // Poll until Idle
+        let status = 'unknown';
+        for (let attempt = 1; attempt <= 8; attempt++) {
+          await new Promise(r => setTimeout(r, 2000));
+          const checkOutput = await sshExec(`dmcli eRT getv Device.SoftwareModules.ExecutionUnit.${newUnitIndex}.Status`);
+          const checkFlat   = parseDmcliOutput(checkOutput);
+          status = checkFlat[`SoftwareModules.ExecutionUnit.${newUnitIndex}.Status`] || 'unknown';
+          console.log(`Post-install stop poll ${attempt}/8: ExecutionUnit.${newUnitIndex}.Status = ${status}`);
+          if (status === 'Idle') break;
+        }
+
+        console.log(`Container ${name} post-install status: ${status}`);
+      } else {
+        console.warn(`Could not find ExecutionUnit for UUID ${uuid} — skipping post-install stop`);
+      }
+    } else {
+      console.log(`Autostart is true for ${name} — leaving container Active`);
+    }
+
+    res.json({ success: true, message: `Container ${name} installed successfully` });
+
   } catch (err) {
+    console.error(`Install failed for ${name}:`, err.message);
     res.status(500).json({ error: `Failed to install container: ${err.message}` });
   }
 });
@@ -316,88 +472,37 @@ app.post('/api/lcm/install', async (req, res) => {
 // API: Stop container
 app.post('/api/lcm/stop', async (req, res) => {
   const { unitIndex } = req.body;
+
+  if (unitIndex === undefined || unitIndex === null) {
+    return res.status(400).json({ success: false, error: 'unitIndex is required' });
+  }
+
   try {
-    // --- Start of modification ---
-
-    // 1. Get all details for the Execution Unit in one call
-    const unitDetailsOutput = await sshExec(`ubus-cli 'SoftwareModules.ExecutionUnit.${unitIndex}.?'`);
+    const line1 = `method_values Device.SoftwareModules.ExecutionUnit.${unitIndex}.SetRequestedState() RequestedState string Idle`;
+    await sshExec(`printf '${line1}\\nquit\\n' > /tmp/stop.txt`);
     
-    // 2. Use your provided parseUbusOutput function
-    const unitDetails = parseUbusOutput(unitDetailsOutput);
-    
-    // 3. Define the keys and extract the cleaned values
-    const nameKey = `SoftwareModules.ExecutionUnit.${unitIndex}.Name`;
-    const euidKey = `SoftwareModules.ExecutionUnit.${unitIndex}.EUID`;
+    const stopOutput = await sshExec('rbuscli -i < /tmp/stop.txt');
+    console.log(`SetRequestedState(Idle) output for ExecutionUnit.${unitIndex}: "${stopOutput}"`);
 
-    const containerName = unitDetails[nameKey]?.replace(/"/g, '');
-    const euid = unitDetails[euidKey]?.replace(/"/g, '');
-
-    if (containerName === 'nabilbizid/custoalpine') {
-      console.log(`Target container '${containerName}' found. Stopping memory leak script.`);
-      
-      if (euid) {
-        // 4. Construct and execute the command to kill the script and clean up
-        const cleanupCommand = `lxc-attach ${euid} -- /bin/sh -c "pkill -f mem_leak.sh; rm -f /tmp/mem_leak.sh /tmp/mem_leak.log"`;
-        console.log(`Executing cleanup command: ${cleanupCommand}`);
-        try {
-            await sshExec(cleanupCommand);
-            console.log('Successfully killed script and removed files inside the container.');
-        } catch (cleanupErr) {
-            console.error(`Could not clean up script inside container (it might not have been running): ${cleanupErr.message}`);
-        }
-      } else {
-          console.error('Could not retrieve EUID for cleanup.');
-      }
+    // Poll dmcli until status is Idle (cthulhu typically takes 3-8 seconds)
+    let status = 'unknown';
+    for (let attempt = 1; attempt <= 8; attempt++) {
+      await new Promise(r => setTimeout(r, 2000));
+      const checkOutput = await sshExec(`dmcli eRT getv Device.SoftwareModules.ExecutionUnit.${unitIndex}.Status`);
+      const checkFlat   = parseDmcliOutput(checkOutput);
+      status = checkFlat[`SoftwareModules.ExecutionUnit.${unitIndex}.Status`] || 'unknown';
+      console.log(`Poll ${attempt}/8: ExecutionUnit.${unitIndex}.Status = ${status}`);
+      if (status === 'Idle') break;
     }
-    
-    // --- End of modification ---
 
-    // 5. Stop the container as usual
-    const stopCommand = `ubus-cli 'SoftwareModules.ExecutionUnit.${unitIndex}.SetRequestedState(RequestedState = "Idle")'`;
-    await sshExec(stopCommand);
-    console.log(`Stopped ExecutionUnit.${unitIndex}`);
-    
-    await new Promise(resolve => setTimeout(resolve, 3000));
-    res.json({ success: true, message: 'Container stopped' });
+    console.log(`ExecutionUnit.${unitIndex} final status: ${status}`);
+    return res.json({ success: true, message: `Container stopped`, status });
+
   } catch (err) {
-    res.status(500).json({ error: `Failed to stop container: ${err.message}` });
+    console.error(`Failed to stop ExecutionUnit.${unitIndex}:`, err);
+    return res.status(500).json({ success: false, error: `Failed: ${err?.message ?? String(err)}` });
   }
 });
-
-
-// Add these routes to your Express app file (index.js)
-// Requires: sshExec(command) -> Promise<string>, parseUbusOutput(output) -> object
-
-// Helper: build the memory-growth script as a string (no JS template literals inside the script)
-function buildMemLeakScript() {
-  const lines = [
-    '#!/bin/sh',
-    '',
-    'echo "Growing memory inside this process (CTRL+C to stop...)"',
-    'echo $$ > /tmp/mem_leak.pid',
-    '',
-    'limit_mb=360',
-    'chunk_size_mb=15',
-    'count=0',
-    '',
-    'while [ $count -lt $((limit_mb / chunk_size_mb)) ]; do',
-    "    # Allocate ~20 MB per iteration",
-    "    chunk=$(head -c $((chunk_size_mb * 1024 * 1024)) < /dev/zero | tr '\\0' 'x')",
-    "    chunks=\"$chunks $chunk\"  # store references so memory stays allocated",
-    '',
-    '    count=$((count + 1))',
-    '    allocated=$((count * chunk_size_mb))',
-    '    echo "Allocated: ${allocated} MB"',
-    '',
-    '    sleep 2',
-    'done',
-    '',
-    'echo "Reached limit of ${limit_mb} MB, stopping."',
-    ''
-  ];
-  return lines.join('\n');
-}
-
 
 // POST /api/lcm/start
 app.post('/api/lcm/start', async (req, res) => {
@@ -408,62 +513,33 @@ app.post('/api/lcm/start', async (req, res) => {
   }
 
   try {
-    // 1) Ask ExecutionUnit to become Active
-    const startCommand = `ubus-cli 'SoftwareModules.ExecutionUnit.${unitIndex}.SetRequestedState(RequestedState = "Active")'`;
-    await sshExec(startCommand);
-    console.log(`Requested Activation of ExecutionUnit.${unitIndex}`);
+    const line1 = `method_values Device.SoftwareModules.ExecutionUnit.${unitIndex}.SetRequestedState() RequestedState string Active`;
+    await sshExec(`printf '${line1}\\nquit\\n' > /tmp/active.txt`);
 
-    // Small delay to allow state to propagate
-    await new Promise(r => setTimeout(r, 1000));
+    const startOutput = await sshExec('rbuscli -i < /tmp/active.txt');
+    console.log(`SetRequestedState(Active) output for ExecutionUnit.${unitIndex}: "${startOutput}"`);
 
-    // 2) Retrieve ExecutionUnit details
-    const unitDetailsOutput = await sshExec(`ubus-cli 'SoftwareModules.ExecutionUnit.${unitIndex}.?'`);
-    const unitDetails = parseUbusOutput(unitDetailsOutput);
-
-    const nameKey = `SoftwareModules.ExecutionUnit.${unitIndex}.Name`;
-    const euidKey = `SoftwareModules.ExecutionUnit.${unitIndex}.EUID`;
-
-    const containerNameRaw = unitDetails[nameKey] || '';
-    const euidRaw = unitDetails[euidKey] || '';
-
-    const containerName = containerNameRaw.replace(/^"|"$/g, '');
-    const euid = euidRaw.replace(/^"|"$/g, '');
-
-    console.log(`ExecutionUnit.${unitIndex} -> Name: ${containerName}, EUID: ${euid}`);
-
-    // 3) If target container matches, inject & run script using base64 transport
-    if (containerName === 'nabilbizid/custoalpine') {
-      if (!euid) {
-        console.error('EUID missing, cannot attach to container');
-        return res.status(500).json({ success: false, error: 'EUID not available for container' });
-      }
-
-      // Build script and base64-encode it locally (no need to escape $ or $(...))
-      const rawScript = buildMemLeakScript();
-      const scriptB64 = Buffer.from(rawScript, 'utf8').toString('base64');
-
-      // Command: echo 'BASE64' | base64 -d > /tmp/mem_leak.sh && chmod +x ... && nohup ... &
-      // Using single quotes around scriptB64 ensures the host shell doesn't expand anything inside it.
-      const attachAndRunCommand = 
-        `lxc-attach ${euid} -- /bin/sh -c "echo '${scriptB64}' | base64 -d > /tmp/mem_leak.sh && chmod +x /tmp/mem_leak.sh && nohup /tmp/mem_leak.sh > /tmp/mem_leak.log 2>&1 &"`;
-
-      console.log('Injecting (base64) and starting memory script inside container...');
-      await sshExec(attachAndRunCommand);
-      console.log('Memory leak script started (nohup background).');
-
-      return res.json({ success: true, message: 'Container started and script injected' });
+    // Poll until Active
+    let status = 'unknown';
+    for (let attempt = 1; attempt <= 8; attempt++) {
+      await new Promise(r => setTimeout(r, 2000));
+      const checkOutput = await sshExec(`dmcli eRT getv Device.SoftwareModules.ExecutionUnit.${unitIndex}.Status`);
+      const checkFlat   = parseDmcliOutput(checkOutput);
+      status = checkFlat[`SoftwareModules.ExecutionUnit.${unitIndex}.Status`] || 'unknown';
+      console.log(`Poll ${attempt}/8: ExecutionUnit.${unitIndex}.Status = ${status}`);
+      if (status === 'Active') break;
     }
 
-    // If not the targeted image, just return success for startup
-    return res.json({ success: true, message: 'Container started (no script injection for this container)' });
+    console.log(`ExecutionUnit.${unitIndex} final status: ${status}`);
+    return res.json({ success: true, message: `Container started`, status });
+
   } catch (err) {
-    console.error('Failed to start container or inject script:', err);
-    return res.status(500).json({ success: false, error: `Failed: ${err && err.message ? err.message : String(err)}` });
+    console.error(`Failed to start ExecutionUnit.${unitIndex}:`, err);
+    return res.status(500).json({ success: false, error: `Failed: ${err?.message ?? String(err)}` });
   }
 });
 
 // POST /api/lcm/stop
-// Stops the mem_leak script inside a specific ExecutionUnit (by unitIndex)
 app.post('/api/lcm/stop', async (req, res) => {
   const { unitIndex } = req.body;
 
@@ -472,56 +548,91 @@ app.post('/api/lcm/stop', async (req, res) => {
   }
 
   try {
-    // Get EUID for the unit
-    const unitDetailsOutput = await sshExec(`ubus-cli 'SoftwareModules.ExecutionUnit.${unitIndex}.?'`);
-    const unitDetails = parseUbusOutput(unitDetailsOutput);
+    const line1 = `method_values Device.SoftwareModules.ExecutionUnit.${unitIndex}.SetRequestedState() RequestedState string Idle`;
+    await sshExec(`printf '${line1}\\nquit\\n' > /tmp/idle.txt`);
 
-    const nameKey = `SoftwareModules.ExecutionUnit.${unitIndex}.Name`;
-    const euidKey = `SoftwareModules.ExecutionUnit.${unitIndex}.EUID`;
+    const startOutput = await sshExec('rbuscli -i < /tmp/idle.txt');
+    console.log(`SetRequestedState(Idle) output for ExecutionUnit.${unitIndex}: "${startOutput}"`);
 
-    const containerNameRaw = unitDetails[nameKey] || '';
-    const euidRaw = unitDetails[euidKey] || '';
-
-    const containerName = containerNameRaw.replace(/^"|"$/g, '');
-    const euid = euidRaw.replace(/^"|"$/g, '');
-
-    if (!euid) {
-      console.error('EUID missing, cannot attach to container for stop');
-      return res.status(500).json({ success: false, error: 'EUID not available for container' });
+    // Poll until Idle
+    let status = 'unknown';
+    for (let attempt = 1; attempt <= 8; attempt++) {
+      await new Promise(r => setTimeout(r, 2000));
+      const checkOutput = await sshExec(`dmcli eRT getv Device.SoftwareModules.ExecutionUnit.${unitIndex}.Status`);
+      const checkFlat   = parseDmcliOutput(checkOutput);
+      status = checkFlat[`SoftwareModules.ExecutionUnit.${unitIndex}.Status`] || 'unknown';
+      console.log(`Poll ${attempt}/8: ExecutionUnit.${unitIndex}.Status = ${status}`);
+      if (status === 'Idle') break;
     }
 
-    console.log(`Stopping mem_leak script in ExecutionUnit.${unitIndex} -> Name: ${containerName}, EUID: ${euid}`);
+    console.log(`ExecutionUnit.${unitIndex} final status: ${status}`);
+    return res.json({ success: true, message: `Container stopped`, status });
 
-    // Use pkill to stop the script by matching the script path, then remove artifacts.
-    // pkill is simple and avoids complex multi-layer quoting (no subshells).
-    const attachAndStopCommand = 
-      `lxc-attach ${euid} -- /bin/sh -c "pkill -f '/tmp/mem_leak.sh' 2>/dev/null || true; rm -f /tmp/mem_leak.sh /tmp/mem_leak.pid /tmp/mem_leak.log 2>/dev/null || true"`;
-
-    await sshExec(attachAndStopCommand);
-
-    console.log('Stop command executed inside container.');
-    return res.json({ success: true, message: 'Stop command executed' });
   } catch (err) {
-    console.error('Failed to stop script inside container:', err);
-    return res.status(500).json({ success: false, error: `Failed to stop script: ${err && err.message ? err.message : String(err)}` });
+    console.error(`Failed to stop ExecutionUnit.${unitIndex}:`, err);
+    return res.status(500).json({ success: false, error: `Failed: ${err?.message ?? String(err)}` });
   }
 });
-
 
 // API: Uninstall container
 app.post('/api/lcm/uninstall', async (req, res) => {
   const { unitIndex, deploymentIndex } = req.body;
+
+  if (!unitIndex || !deploymentIndex) {
+    return res.status(400).json({ success: false, error: 'unitIndex and deploymentIndex are required' });
+  }
+
   try {
-    const stopCommand = `ubus-cli 'SoftwareModules.ExecutionUnit.${unitIndex}.SetRequestedState(RequestedState = "Idle")'`;
-    const uninstallCommand = `ubus-cli 'SoftwareModules.DeploymentUnit.${deploymentIndex}.Uninstall()'`;
-    await sshExec(stopCommand);
-    await sshExec(uninstallCommand);
-    console.log(`Uninstalled DeploymentUnit.${deploymentIndex} and stopped ExecutionUnit.${unitIndex}`);
-    await new Promise(resolve => setTimeout(resolve, 3000));
-    await sshExec('/etc/init.d/timingila restart'); // Restart to rearrange indices
-    res.json({ success: true, message: 'Container uninstalled' });
+    // Step 1: Stop the ExecutionUnit first (must be Idle before uninstall)
+    const stopLine = `method_values Device.SoftwareModules.ExecutionUnit.${unitIndex}.SetRequestedState() RequestedState string Idle`;
+    await sshExec(`printf '${stopLine}\\nquit\\n' > /tmp/stop.txt`);
+
+    const stopOutput = await sshExec('rbuscli -i < /tmp/stop.txt');
+    console.log(`SetRequestedState(Idle) for ExecutionUnit.${unitIndex}: "${stopOutput}"`);
+
+    // Step 2: Poll until Idle before proceeding to uninstall
+    let status = 'unknown';
+    for (let attempt = 1; attempt <= 8; attempt++) {
+      await new Promise(r => setTimeout(r, 2000));
+      const checkOutput = await sshExec(`dmcli eRT getv Device.SoftwareModules.ExecutionUnit.${unitIndex}.Status`);
+      const checkFlat   = parseDmcliOutput(checkOutput);
+      status = checkFlat[`SoftwareModules.ExecutionUnit.${unitIndex}.Status`] || 'unknown';
+      console.log(`Poll ${attempt}/8: ExecutionUnit.${unitIndex}.Status = ${status}`);
+      if (status === 'Idle') break;
+    }
+
+    if (status !== 'Idle') {
+      throw new Error(`ExecutionUnit.${unitIndex} did not reach Idle state (current: ${status})`);
+    }
+
+    // Step 3: Uninstall the DeploymentUnit
+    const uninstallLine = `method_noargs Device.SoftwareModules.DeploymentUnit.${deploymentIndex}.Uninstall()`;
+    await sshExec(`printf '${uninstallLine}\\nquit\\n' > /tmp/uninstall.txt`);
+
+    const uninstallOutput = await sshExec('rbuscli -i < /tmp/uninstall.txt');
+    console.log(`Uninstall output for DeploymentUnit.${deploymentIndex}: "${uninstallOutput}"`);
+
+    if (
+  uninstallOutput.includes('element name does not exist') ||
+  uninstallOutput.includes('RBUS_ERROR') ||
+  uninstallOutput.includes('failed') && uninstallOutput.includes('err:')
+) {
+  throw new Error(`rbuscli uninstall reported failure: ${uninstallOutput}`);
+}
+
+    console.log(`Uninstalled DeploymentUnit.${deploymentIndex}, stopped ExecutionUnit.${unitIndex}`);
+
+    // Step 4: Wait for cthulhu to clean up then restart timingila
+    await new Promise(r => setTimeout(r, 3000));
+    const restartOutput = await sshExec('/etc/init.d/timingila restart');
+    console.log(`timingila restart: ${restartOutput}`);
+    await new Promise(r => setTimeout(r, 2000));
+
+    res.json({ success: true, message: `DeploymentUnit.${deploymentIndex} uninstalled` });
+
   } catch (err) {
-    res.status(500).json({ error: `Failed to uninstall container: ${err.message}` });
+    console.error(`Uninstall failed:`, err.message);
+    res.status(500).json({ success: false, error: `Failed to uninstall: ${err.message}` });
   }
 });
 
