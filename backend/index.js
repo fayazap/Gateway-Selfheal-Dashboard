@@ -3,6 +3,18 @@ const { Client } = require('ssh2');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const fs = require('fs').promises;
+const {
+  OID_LIST,
+  PARAM_TYPES,
+  snmp,
+  snmpGet,
+  snmpSet,
+  resolveOid,
+  formatValue,
+  parseHistoricalReboots,
+  getSelfhealParams,
+  coerceWriteValue,
+} = require('./snmp');
 
 const app = express();
 const port = 5000;
@@ -40,20 +52,6 @@ function sshExec(command) {
     .connect(sshConfig)
     .on('error', reject);
   });
-}
-
-// Parse ubus-cli output into object
-function parseUbusOutput(output) {
-  const lines = output.split('\n').filter(line => line.trim() && !line.startsWith('>'));
-  const result = {};
-  lines.forEach(line => {
-    if (line.includes('=')) {
-      const [key, value] = line.split('=');
-      result[key.trim()] = value.trim();
-      console.log(`Parsed: ${key.trim()} = ${value.trim()}`); // Debug log
-    }
-  });
-  return result;
 }
 
 // Parse dmcli output into a flat object
@@ -175,54 +173,59 @@ app.get('/api/summary', async (req, res) => {
   }
 });
 
-// API: Fetch all selfheal params and reboots
+// API: Fetch all selfheal params and reboots via SNMP (device target = gateway IP set at login)
 app.get('/api/selfheal', async (req, res) => {
   try {
-    const output = await sshExec('ubus-cli X_TINNO-COM_SelfHeal.?');
-    console.log('Raw Selfheal Output:', output); // Debug log
-    const params = parseUbusOutput(output);
+    const host = sshConfig.host;
+    const { params, raw } = await getSelfhealParams(host);
+    const reboots = parseHistoricalReboots(params.tinnoHistoricalRebootReason);
 
-    const reboots = [];
-    const rebootCount = parseInt(params['X_TINNO-COM_SelfHeal.EventsNumberOfEntries'] || 0);
-    for (let i = 1; i <= rebootCount; i++) {
-      reboots.push({
-        reason: params[`X_TINNO-COM_SelfHeal.Events.${i}.Reason`] || 'N/A',
-        time: params[`X_TINNO-COM_SelfHeal.Events.${i}.Time`] || 'N/A'
-      });
-    }
-
-    const lastReboot = reboots.length > 0 ? reboots[reboots.length - 1] : { reason: 'No History', time: 'No History' };
-
-    const avgCpuThreshold = parseInt(params['X_TINNO-COM_SelfHeal.AvgCPUThreshold'] || 0);
-    const avgMemoryThreshold = parseInt(params['X_TINNO-COM_SelfHeal.AvgMemoryThreshold'] || 0);
-    const avgTemperatureThreshold = parseInt(params['X_TINNO-COM_SelfHeal.AvgTemperatureThreshold'] || 120);
+    const rebootCount = parseInt(params.tinnoLastRebootCounter, 10) || 0;
+    const avgCpuThreshold = parseInt(params.tinnoAvgCPUThreshold, 10) || 0;
+    const avgMemoryThreshold = parseInt(params.tinnoAvgMemoryThreshold, 10) || 0;
+    const avgTemperatureThreshold = parseInt(params.tinnoTemperatureThreshold, 10) || 0;
 
     res.json({
       params,
+      raw,
       reboots,
-      lastRebootReason: lastReboot.reason,
-      lastRebootTime: lastReboot.time,
-      rebootCount: rebootCount,
+      lastRebootReason: params.tinnoLastRebootReason,
+      lastRebootTime: params.tinnoLastActionTakenTime,
+      rebootCount,
       avgCpuThreshold,
       avgMemoryThreshold,
       avgTemperatureThreshold,
     });
   } catch (err) {
-    res.status(500).json({ error: `SSH error: ${err.message}` });
+    console.error('GET /api/selfheal failed:', err);
+    res.status(500).json({ error: `SNMP error: ${err.message}` });
   }
 });
 
-// API: Configure a parameter
+// API: Configure a self-heal parameter via SNMP SET
 app.post('/api/configure', async (req, res) => {
   const { param, value } = req.body;
-  if (!param || !value) return res.status(400).json({ error: 'Missing param or value' });
+  if (!param || value === undefined || value === null || value === '') {
+    return res.status(400).json({ error: 'Missing param or value' });
+  }
+  if (!OID_LIST[param]) return res.status(400).json({ error: `Unknown parameter: ${param}` });
+
+  const type = PARAM_TYPES[param] || snmp.ObjectType.OctetString;
+  const setValue = coerceWriteValue(param, type, value);
+  if (type === snmp.ObjectType.Integer && Number.isNaN(setValue)) {
+    return res.status(400).json({ error: `"${value}" is not a valid value for ${param}` });
+  }
 
   try {
-    const output = await sshExec(`ubus-cli ${param}=${value}`);
-    const updated = await sshExec(`ubus-cli ${param}?`);
-    res.json({ success: true, updatedValue: updated.split('=')[1]?.trim() });
+    const host = sshConfig.host;
+    const oid = resolveOid(OID_LIST[param]);
+
+    await snmpSet(host, oid, type, setValue);
+    const updatedRaw = await snmpGet(host, oid);
+    res.json({ success: true, updatedValue: formatValue(param, updatedRaw) });
   } catch (err) {
-    res.status(500).json({ error: `SSH error: ${err.message}` });
+    console.error(`POST /api/configure failed for ${param}=${value}:`, err);
+    res.status(500).json({ error: `SNMP error: ${err.message}` });
   }
 });
 
