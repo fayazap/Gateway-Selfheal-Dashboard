@@ -331,10 +331,10 @@ function DisplayConfigurePage() {
         place="top"
         offset={10}
         opacity={1}
+        border="1px solid #e5e7eb"
         style={{
           background: '#ffffff',
           color: '#374151',
-          border: '1px solid #e5e7eb',
           borderRadius: '0.5rem',
           padding: '0.15rem 0.15rem',
           fontSize: '0.8rem',
@@ -343,7 +343,6 @@ function DisplayConfigurePage() {
           boxShadow: '0 6px 16px -6px rgba(0,0,0,0.2)',
           maxWidth: 'min(280px, 90vw)',
           zIndex: 1900,
-          opacity: 1,
         }}
       />
 
