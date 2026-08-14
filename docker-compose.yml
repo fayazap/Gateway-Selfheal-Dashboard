@@ -8,6 +8,8 @@ services:
       - SSH_USERNAME=${SSH_USERNAME}
       - SSH_PASSWORD=${SSH_PASSWORD}
       - SNMP_COMMUNITY=${SNMP_COMMUNITY:-public}
+      - MTA_IP=${MTA_IP}
+      - MTA_COMMUNITY=${MTA_COMMUNITY:-private}
     volumes:
       - ./backend:/app  # Optional for development
       - /app/node_modules

@@ -5,6 +5,7 @@ import { Alert, Card, Button } from 'react-bootstrap';
 import { motion } from 'framer-motion';
 import {
   Globe, Cpu, Power, MemoryStick, Network, Clock, RefreshCw, AlertCircle, Thermometer,
+  ArrowDownCircle, ArrowUpCircle, PhoneCall,
 } from 'lucide-react';
 import {
   Chart as ChartJS,
@@ -30,6 +31,12 @@ function SummaryPage() {
     avgCpuThreshold: 0,
     avgMemoryThreshold: 0,
     avgTemperatureThreshold: 0,
+  });
+  const [networkQuality, setNetworkQuality] = useState({
+    inDiscards: null,
+    outDiscards: null,
+    voiceDQoS: null,
+    adjustedDueToDiscards: false,
   });
   const [cpuData, setCpuData] = useState({
     datasets: [
@@ -110,12 +117,14 @@ function SummaryPage() {
   const fetchAndUpdateAll = async () => {
     setError('');
     try {
-      const [summaryResponse, selfhealResponse, statsResponse] = await Promise.all([
+      const [summaryResponse, selfhealResponse, statsResponse, networkQualityResponse] = await Promise.all([
         axios.get('/api/summary'),
         axios.get('/api/selfheal'),
         axios.get('/api/stats'),
+        axios.get('/api/network-quality'),
       ]);
       if (summaryResponse.status === 200) setSummary(summaryResponse.data);
+      if (networkQualityResponse.status === 200) setNetworkQuality(networkQualityResponse.data);
       if (selfhealResponse.status === 200 && statsResponse.status === 200) {
         const newSelfheal = {
           lastRebootReason: selfhealResponse.data.lastRebootReason,
@@ -450,6 +459,56 @@ function SummaryPage() {
               </div>
             </div>
           </div>
+        </div>
+
+        {/* Network Quality Status Card */}
+        <div className="bg-white rounded-xl shadow-md p-4 mt-6">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-lg font-semibold text-gray-800 flex items-center">
+              <Network className="w-5 h-5 mr-1 text-tinno-green-600" />
+              Network Quality Status
+            </h3>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-tinno-green-50 p-3 rounded-lg">
+              <div className="flex items-center space-x-2">
+                <ArrowDownCircle className="w-6 h-6 text-tinno-green-600" />
+                <div>
+                  <p className="text-xs text-gray-600">Incoming Discarded Packets</p>
+                  <p className="text-base font-semibold text-gray-900">
+                    {networkQuality.inDiscards ?? 'N/A'}
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="bg-tinno-green-50 p-3 rounded-lg">
+              <div className="flex items-center space-x-2">
+                <ArrowUpCircle className="w-6 h-6 text-tinno-green-600" />
+                <div>
+                  <p className="text-xs text-gray-600">Outgoing Discarded Packets</p>
+                  <p className="text-base font-semibold text-gray-900">
+                    {networkQuality.outDiscards ?? 'N/A'}
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="bg-tinno-green-50 p-3 rounded-lg">
+              <div className="flex items-center space-x-2">
+                <PhoneCall className="w-6 h-6 text-tinno-green-600" />
+                <div>
+                  <p className="text-xs text-gray-600">Voice DQoS</p>
+                  <p className="text-base font-semibold text-gray-900">
+                    {networkQuality.voiceDQoS ?? 'N/A'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+          {networkQuality.adjustedDueToDiscards && (
+            <p className="mt-3 text-sm font-medium text-tinno-green-700 bg-tinno-green-50 border-l-4 border-tinno-green-600 rounded p-2">
+              Network quality adjusted to optimize data flow due to packet discards.
+            </p>
+          )}
         </div>
 
         {/* Graphs Section */}

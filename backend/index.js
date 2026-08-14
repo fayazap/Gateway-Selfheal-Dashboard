@@ -13,6 +13,7 @@ const {
   formatValue,
   parseHistoricalReboots,
   getSelfhealParams,
+  getNetworkQuality,
   coerceWriteValue,
 } = require('./snmp');
 
@@ -198,6 +199,18 @@ app.get('/api/selfheal', async (req, res) => {
     });
   } catch (err) {
     console.error('GET /api/selfheal failed:', err);
+    res.status(500).json({ error: `SNMP error: ${err.message}` });
+  }
+});
+
+// API: Fetch Network Quality Status (discard counters from the gateway, Voice DQoS from the eMTA)
+app.get('/api/network-quality', async (req, res) => {
+  try {
+    const host = sshConfig.host;
+    const networkQuality = await getNetworkQuality(host);
+    res.json(networkQuality);
+  } catch (err) {
+    console.error('GET /api/network-quality failed:', err);
     res.status(500).json({ error: `SNMP error: ${err.message}` });
   }
 });
