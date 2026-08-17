@@ -1,0 +1,1788 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>eMTA Self-Healing Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: rgb(255, 255, 255);
+            margin: 0;
+            padding: 30px;
+            padding-top: 10px;
+            min-height: 100vh;
+            overflow-x: hidden;
+            color: #333333;
+            position: relative;
+        }
+
+        .logo {
+            max-width: 130px;
+            margin-left: 0px;
+            margin-top: 0px;
+            height: auto;
+            transition: transform 0.3s ease;
+            position: absolute;
+            z-index: 10;
+        }
+
+        .logo:hover {
+            transform: scale(1.1);
+        }
+
+        @media (max-width: 768px) {
+            .logo {
+                max-width: 100px;
+                top: 10px;
+                left: 10px;
+            }
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            position: relative;
+            z-index: 5;
+        }
+
+        .header {
+            margin-bottom: 20px;
+            text-align: center;
+            padding-top: 35px;
+        }
+
+        .header-content {
+            display: inline-block;
+        }
+
+        .header h1 {
+            font-size: 2rem;
+            font-weight: 700;
+            letter-spacing: 1px;
+            margin: 0;
+            color: #007451;
+        }
+
+        .header p {
+            font-size: 1rem;
+            max-width: 800px;
+            margin: 5px auto;
+            color: #555555;
+        }
+
+        .health-bar {
+            width: 200px;
+            margin: 20px auto;
+            height: 12px;
+            background: #e0e0e0;
+            border-radius: 6px;
+            overflow: hidden;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+
+        .health-bar-fill {
+            height: 100%;
+            background: #007451;
+            width: 0;
+            transition: width 1s ease;
+        }
+
+        .card {
+            border: 1px solid #e0e0e0;
+            border-radius: 5px;
+            background: #ffffff;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            margin-bottom: 30px;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 4px 10px rgba(40, 167, 69, 0.2);
+        }
+
+        .card-header {
+            background: #007451;
+            color: #ffffff;
+            font-weight: 600;
+            border-radius: 5px 5px 0 0;
+            padding: 15px;
+            font-size: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .card-body {
+            padding: 20px;
+            font-size: 1rem;
+            color: #333333;
+            line-height: 1.6;
+        }
+
+        .metric-card {
+            background: #ffffff;
+            border: 1px solid #e0e0e0;
+            border-radius: 5px;
+            margin-bottom: 10px;
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .metric-card:hover {
+            transform: scale(1.05);
+            box-shadow: 0 4px 10px rgba(40, 167, 69, 0.2);
+        }
+
+        .metric-card i {
+            font-size: 1rem;
+            color: #007451;
+            margin-bottom: 10px;
+            transition: transform 0.3s ease;
+        }
+
+        .metric-card:hover i {
+            transform: rotate(10deg);
+        }
+
+        .metric-card h5 {
+            color: #333333;
+            font-weight: 600;
+            margin-bottom: 15px;
+        }
+
+        .metric-card p {
+            margin: 0;
+            font-size: 1rem;
+            font-weight: 500;
+            color: #333333;
+        }
+
+        .badge-status {
+            font-size: 0.8rem;
+            padding: 8px 15px;
+            border-radius: 20px;
+            background: #28a745;
+            color: #ffffff;
+            transition: background 0.3s ease;
+        }
+
+        .badge-status.bg-warning {
+            background: #34d058;
+        }
+
+        canvas {
+            max-height: 280px !important;
+            background: #ffffff;
+            border-radius: 5px;
+            padding: 15px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            width: 100% !important;
+        }
+
+        .wan-status-list {
+            list-style: none;
+            padding: 0;
+        }
+
+        .wan-status-list li {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            font-size: 0.9rem;
+            transition: background 0.3s ease;
+        }
+
+        .wan-status-list li:hover {
+            background: #f0f0f0;
+            border-radius: 5px;
+            padding: 5px;
+        }
+
+        .wan-status-list li span:first-child {
+            font-weight: 600;
+            color: #333333;
+        }
+
+        .wan-status-list li span:last-child {
+            color: #333333;
+        }
+
+        .wan-status-message {
+            text-align: center;
+            font-weight: 600;
+            color: #dc3545;
+            margin: 20px 0;
+            padding: 10px;
+            background: #f8d7da;
+            border-radius: 5px;
+            border-left: 4px solid #dc3545;
+        }
+
+        .self-heal-events-list {
+            list-style: none;
+            padding: 0;
+        }
+
+        .self-heal-events-list li {
+            margin-bottom: 10px;
+            font-size: 0.9rem;
+            color: #333333;
+            transition: background 0.3s ease;
+            padding: 10px;
+            border-left: 4px solid #007451;
+            background: #f8f9fa;
+            border-radius: 5px;
+        }
+
+        .self-heal-events-list li:hover {
+            background: #e6f3ec;
+            border-left: 4px solid #00a676;
+        }
+        
+        .status-connected {
+            color: #28a745;
+            font-weight: 600;
+        }
+
+        .status-disconnected {
+            color: #dc3545;
+            font-weight: 600;
+        }
+
+        .qos-status {
+            margin: 20px auto;
+            text-align: center;
+            color: #333333;
+            font-size: 1.1rem;
+            width: 70%;
+            display: center;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .qos-status .card {
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            background: linear-gradient(145deg, #ffffff, #f8f9fa);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            animation: fadeIn 0.5s ease-out;
+        }
+
+        .qos-status .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 6px 15px rgba(40, 167, 69, 0.2);
+        }
+
+        .qos-status .card-header {
+            background: linear-gradient(to right, #007451, #00a676);
+            border-radius: 8px 8px 0 0;
+            padding: 12px;
+        }
+
+        .qos-status .card-body {
+            padding: 15px;
+        }
+
+        .qos-status h4 {
+            color: #007451;
+            font-weight: 600;
+            margin-bottom: 10px;
+            font-size: 1.3rem;
+        }
+
+        .qos-status-list {
+            list-style: none;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            width: 100%;
+        }
+
+        .qos-status-list li {
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            transition: background 0.3s ease;
+            padding: 5px 10px;
+            border-radius: 5px;
+            width: 80%;
+            max-width: 600px;
+        }
+
+        .qos-status-list li:hover {
+            background: #f0f0f0;
+        }
+
+        .qos-status-list li i {
+            color: #007451;
+            font-size: 1.2rem;
+            transition: transform 0.2s ease;
+        }
+
+        .qos-status-list li:hover i {
+            transform: scale(1.2);
+        }
+
+        .qos-status-list li span:first-child {
+            font-weight: 600;
+            color: #555555;
+            flex: 1;
+        }
+
+        .qos-status-list li span:last-child {
+            color: #333333;
+            font-weight: 500;
+        }
+
+        .qos-action-message {
+            margin-top: 10px;
+            color: #333333;
+            font-weight: 500;
+            font-size: 1rem;
+            display: none;
+            background: #e6f3ec;
+            padding: 8px;
+            border-radius: 5px;
+            border-left: 4px solid #007451;
+            border-right: 4px solid #007451;
+        }
+
+        .qos-action-message.show {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @media (max-width: 768px) {
+            .header {
+                padding-top: 80px;
+            }
+
+            .header h1 {
+                font-size: 2rem;
+            }
+
+            .card-body {
+                font-size: 1rem;
+            }
+
+            .metric-card {
+                margin-bottom: 20px;
+            }
+
+            canvas {
+                max-height: 300px !important;
+            }
+
+            .wan-status-list li {
+                font-size: 0.9rem;
+            }
+
+            .reboot-reasons-list li {
+                font-size: 0.9rem;
+            }
+
+            .qos-status h4 {
+                font-size: 1.3rem;
+            }
+
+            .qos-status-list li {
+                font-size: 0.9rem;
+            }
+
+            .qos-action-message {
+                font-size: 0.9rem;
+            }
+        }
+
+        .wan-status-card {
+            display: none;
+        }
+
+        .wan-status-card.show {
+            display: block;
+        }
+
+        .toggle-button {
+            background-color: #007451;
+            color: #ffffff;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.3s ease, transform 0.3s ease;
+            margin-bottom: 20px;
+            display: block;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .toggle-button:hover {
+            background-color: #00a676;
+            transform: translateY(-2px);
+        }
+
+        .memory-leak-message {
+            text-align: center;
+            font-weight: 600;
+            color: #dc3545;
+            margin: 20px 0;
+            padding: 10px;
+            background: #f8d7da;
+            border-radius: 5px;
+            border-left: 4px solid #dc3545;
+            display: none;
+        }
+        .memory-leak-message.success {
+            color: #28a745;
+            background: #e6f3ec;
+            border-left: 4px solid #28a745;
+        }
+        .memory-leak-message.show {
+            display: block;
+        }
+
+        /* Sidebar overlay */
+        .sidebar-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0,0,0,0.5);
+            z-index: 1040;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s ease, visibility 0.3s ease;
+        }
+        .sidebar-overlay.show {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        /* Sidebar styles */
+        .config-sidebar {
+            position: fixed;
+            top: 0;
+            right: -400px;
+            width: 400px;
+            height: 100vh;
+            background: #ffffff;
+            box-shadow: -4px 0 15px rgba(0,0,0,0.1);
+            transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 1050;
+            display: flex;
+            flex-direction: column;
+        }
+        .config-sidebar.open {
+            right: 0;
+        }
+        @media (max-width: 450px) {
+            .config-sidebar { width: 100%; right: -100%; }
+        }
+        .sidebar-header-area {
+            background: #007451;
+            color: #ffffff;
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .sidebar-title {
+            margin: 0;
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+        .sidebar-close {
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            color: #ffffff;
+            font-size: 1.2rem;
+            cursor: pointer;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s;
+        }
+        .sidebar-close:hover {
+            background: rgba(255, 255, 255, 0.4);
+        }
+        .sidebar-body {
+            padding: 20px;
+            overflow-y: auto;
+            flex: 1;
+        }
+
+        /* Floating config toggle button */
+        .config-btn-floating {
+            position: fixed;
+            top: 25px;
+            right: 30px;
+            z-index: 1000;
+            background: #007451;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 30px;
+            font-weight: 600;
+            box-shadow: 0 4px 10px rgba(0, 116, 81, 0.3);
+            transition: transform 0.2s ease, background 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .config-btn-floating:hover {
+            transform: translateY(-2px);
+            background: #00a676;
+            color: white;
+        }
+    
+/* Added styles for the new layout */
+body {
+    padding: 0 !important;
+    background: #f8f9fa !important;
+}
+.ps-sidebar-container {
+    width: 250px;
+    background-color: #eaf1ef;
+    min-height: 100vh;
+    border-right: 1px solid #e0e0e0;
+    transition: width 0.3s;
+}
+.sidebar-menu-item {
+    padding: 12px 20px;
+    color: #424242 !important;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    display: flex;
+    align-items: center;
+    text-decoration: none;
+    transition: background-color 0.3s, color 0.3s;
+}
+.sidebar-menu-item:hover, .sidebar-menu-item.active {
+    background-color: #007451;
+    color: #fff !important;
+}
+.sidebar-menu-item i {
+    width: 24px;
+    text-align: center;
+}
+.main-header {
+    background: linear-gradient(to right, #007451, #00a676);
+    color: #fff;
+    padding: 20px 30px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+.nav-pills .nav-link {
+    border-radius: 0;
+}
+    
+/* Added styles for the new layout */
+body {
+    padding: 0 !important;
+    background: #f8f9fa !important;
+}
+.ps-sidebar-container {
+    width: 250px;
+    background-color: #eaf1ef;
+    min-height: 100vh;
+    border-right: 1px solid #e0e0e0;
+    transition: width 0.3s;
+}
+.sidebar-menu-item {
+    padding: 12px 20px;
+    color: #424242 !important;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    display: flex;
+    align-items: center;
+    text-decoration: none;
+    transition: background-color 0.3s, color 0.3s;
+}
+.sidebar-menu-item:hover, .sidebar-menu-item.active {
+    background-color: #007451;
+    color: #fff !important;
+}
+.sidebar-menu-item i {
+    width: 24px;
+    text-align: center;
+}
+.main-header {
+    background: linear-gradient(to right, #007451, #00a676);
+    color: #fff;
+    padding: 20px 30px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+.nav-pills .nav-link {
+    border-radius: 0;
+}
+    </style>
+</head>
+<body>
+    <div class="d-flex" style="min-height: 100vh; width: 100%;">
+        <!-- Sidebar -->
+        <div class="ps-sidebar-container shadow-sm d-flex flex-column" style="position: sticky; top: 0; height: 100vh;">
+            <div class="text-center p-3 border-bottom border-secondary-subtle bg-white">
+                <img src="/static/images/image_5027875_25968507_Logo.jpg" alt="Logo" style="max-height: 40px;">
+            </div>
+            <div class="flex-grow-1 py-3">
+                <ul class="nav flex-column">
+                    <li class="nav-item">
+                        <a href="#" class="sidebar-menu-item active" id="menu-summary" onclick="switchTab('summary')">
+                            <i class="fas fa-chart-column me-2"></i> Device Summary
+                        </a>
+                    </li>
+                    <li class="nav-item mt-1">
+                        <a href="#" class="sidebar-menu-item" id="menu-configure" onclick="switchTab('configure')">
+                            <i class="fas fa-server me-2"></i> Configure Device Status
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="flex-grow-1 d-flex flex-column w-100 overflow-hidden" style="background-color: #f8f9fa;">
+            <!-- Header -->
+            <header class="main-header d-flex justify-content-between align-items-center">
+                <div>
+                    <h1 class="h3 mb-1" style="font-weight: 700; letter-spacing: 1px;">
+                        <i class="fas fa-shield-alt me-2"></i> eMTA Self-Healing Dashboard
+                    </h1>
+                    <p class="mb-0" style="font-size: 0.95rem; color: #e8f5e9;">
+                        Experience uninterrupted connectivity with our intelligent self-healing system.
+                    </p>
+                </div>
+            </header>
+
+            <!-- Dashboard Body -->
+            <main class="p-4" style="overflow-y: auto;">
+                <div id="tab-summary">
+                    <div class="health-bar mb-4" style="margin: 0 auto;">
+                        <div class="health-bar-fill" id="healthBar"></div>
+                    </div>
+                
+                    <div class="row">
+                        <div class="col-lg-12">
+                            <div class="card shadow-sm mb-4 border-0">
+                                <div class="card-header bg-success text-white" style="background-color: #007451 !important;">
+                                    <i class="fas fa-heartbeat"></i> Self-Healing Status
+                                </div>
+                                <div class="card-body" id="selfHealSummary">
+                                    <i class="fas fa-spinner fa-spin"></i> Loading status...
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row g-4 mb-4">
+                        <div class="col-lg-3 col-md-4 col-sm-6">
+                            <div class="card metric-card shadow-sm h-100 text-center p-3 border-0">
+                                <i class="fas fa-clock fs-4" style="color: #007451;"></i>
+                                <h5 class="mt-3">Monitoring Interval</h5>
+                                <p id="monitoringInterval">Loading...</p>
+                            </div>
+                        </div>
+                        <div class="col-lg-3 col-md-4 col-sm-6">
+                            <div class="card metric-card shadow-sm h-100 text-center p-3 border-0">
+                                <i class="fas fa-power-off fs-4" style="color: #007451;"></i>
+                                <h5 class="mt-3">Last Reboot</h5>
+                                <p id="lastReboot">Loading...</p>
+                            </div>
+                        </div>
+                        <div class="col-lg-3 col-md-4 col-sm-6">
+                            <div class="card metric-card shadow-sm h-100 text-center p-3 border-0">
+                                <i class="fas fa-tools fs-4" style="color: #007451;"></i>
+                                <h5 class="mt-3">Last Action Taken</h5>
+                                <p id="lastAction">Loading...</p>
+                            </div>
+                        </div>
+                        <div class="col-lg-3 col-md-4 col-sm-6">
+                            <div class="card metric-card shadow-sm h-100 text-center p-3 border-0">
+                                <i class="fas fa-clock fs-4" style="color: #007451;"></i>
+                                <h5 class="mt-3">Connectivity Test Interval</h5>
+                                <p id="pingInterval">Loading...</p>
+                            </div>
+                        </div>
+                        <div class="col-lg-3 col-md-4 col-sm-6">
+                            <div class="card metric-card shadow-sm h-100 text-center p-3 border-0">
+                                <i class="fas fa-network-wired fs-4" style="color: #007451;"></i>
+                                <h5 class="mt-3">Connectivity Server</h5>
+                                <p id="ipv4Address">Loading...</p>
+                            </div>
+                        </div>
+                        <div class="col-lg-3 col-md-4 col-sm-6">
+                            <div class="card metric-card shadow-sm h-100 text-center p-3 border-0">
+                                <i class="fas fa-sync-alt fs-4" style="color: #007451;"></i>
+                                <h5 class="mt-3">Reboot Count</h5>
+                                <p id="rebootCount">Loading...</p>
+                            </div>
+                        </div>
+                        <div class="col-lg-3 col-md-4 col-sm-6">
+                            <div class="card metric-card shadow-sm h-100 text-center p-3 border-0">
+                                <i class="fas fa-clock fs-4" style="color: #007451;"></i>
+                                <h5 class="mt-3">Speed Test Interval</h5>
+                                <p id="speedTestInterval">Loading...</p>
+                            </div>
+                        </div>
+                        <div class="col-lg-3 col-md-4 col-sm-6">
+                            <div class="card metric-card shadow-sm h-100 text-center p-3 border-0">
+                                <i class="fas fa-tachometer-alt fs-4" style="color: #007451;"></i>
+                                <h5 class="mt-3">Speed Test Status</h5>
+                                <p id="speedTestStatus">Loading...</p>
+                            </div>
+                        </div>
+                        <div class="col-lg-3 col-md-4 col-sm-6">
+                            <div class="card metric-card shadow-sm h-100 text-center p-3 border-0">
+                                <i class="fas fa-bolt fs-4" style="color: #007451;"></i>
+                                <h5 class="mt-3">Speed Test Threshold</h5>
+                                <p id="speedTestThreshold">Loading...</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <button class="btn text-white toggle-button mb-4" id="toggleWanStatus" style="margin-left: 0; background-color: #007451;">Show WAN Interface Status</button>
+
+                    <div class="card wan-status-card mb-4 border-0 shadow-sm" id="wanStatusCard">
+                        <div class="card-header bg-success text-white" style="background-color: #007451 !important;"><i class="fas fa-globe"></i> WAN Interface Status</div>
+                        <div class="card-body" id="wanStatus">
+                            <i class="fas fa-spinner fa-spin"></i> Loading WAN Interface status...
+                        </div>
+                    </div>
+
+                    <div class="row mb-4">
+                        <div class="col-12">
+                            <div class="card border-0 shadow-sm">
+                                <div class="card-header text-white" style="background: linear-gradient(to right, #007451, #00a676);">
+                                    <i class="fas fa-exchange-alt"></i> Network Quality Status
+                                </div>
+                                <div class="card-body">
+                                    <ul class="qos-status-list list-unstyled mb-0 w-100" id="qosStatus">
+                                        <li class="d-flex justify-content-between p-2 hover-bg"><i class="fas fa-arrow-down text-success me-2"></i><span class="flex-grow-1">Incoming Discarded Packets:</span><span>Loading...</span></li>
+                                        <li class="d-flex justify-content-between p-2 hover-bg"><i class="fas fa-arrow-up text-success me-2"></i><span class="flex-grow-1">Outgoing Discarded Packets:</span><span>Loading...</span></li>
+                                        <li class="d-flex justify-content-between p-2 hover-bg"><i class="fas fa-phone text-success me-2"></i><span class="flex-grow-1">Voice DQoS:</span><span>Loading...</span></li>
+                                    </ul>
+                                    <p class="qos-action-message mt-3" id="qosActionMessage"></p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <button class="btn text-white toggle-button mb-4" id="triggerMemoryLeak" style="margin-left: 0; background-color: #007451;">Trigger Memory Leak Test</button>
+                    <div class="memory-leak-message mb-4" id="memoryLeakMessage"></div>
+
+                    <div class="row g-4 mb-4">
+                        <div class="col-md-6">
+                            <div class="card border-0 shadow-sm h-100">
+                                <div class="card-header bg-success text-white" style="background-color: #007451 !important;"><i class="fas fa-chart-line"></i> CPU Usage</div>
+                                <div class="card-body">
+                                    <canvas id="cpuChart" style="max-height: 280px; width: 100%;"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="card border-0 shadow-sm h-100">
+                                <div class="card-header bg-success text-white" style="background-color: #007451 !important;"><i class="fas fa-chart-line"></i> Free Memory</div>
+                                <div class="card-body">
+                                    <canvas id="memoryChart" style="max-height: 280px; width: 100%;"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row mb-4 justify-content-center">
+                        <div class="col-md-6">
+                            <div class="card border-0 shadow-sm h-100">
+                                <div class="card-header bg-success text-white" style="background-color: #007451 !important;"><i class="fas fa-chart-line"></i> Throughput</div>
+                                <div class="card-body">
+                                    <canvas id="throughputChart" style="max-height: 280px; width: 100%;"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="card border-0 shadow-sm">
+                        <div class="card-header bg-success text-white" style="background-color: #007451 !important;"><i class="fas fa-history"></i> Self-Healing Events</div>
+                        <div class="card-body" id="selfHealEvents">
+                            <i class="fas fa-spinner fa-spin"></i> Loading...
+                        </div>
+                    </div>
+                </div> <!-- END SUMMARY TAB -->
+
+                <!-- CONFIGURE TAB (Adapted from Prototype) -->
+                <div id="tab-configure" style="display: none;">
+                    <div class="card shadow-sm border-0 mb-4">
+                        <div class="card-header bg-success text-white p-3" style="background-color: #007451 !important;">
+                            <h5 class="mb-0">Configure Self-Healing Parameters</h5>
+                        </div>
+                        <div class="card-body p-4 bg-white">
+                            <div id="configStatusMessage" class="alert d-none mb-4" role="alert"></div>
+                            
+                            <form id="configForm">
+                                <div class="row mb-4 align-items-center">
+                                    <div class="col-md-4 text-secondary fw-bold">Self-Heal Enable</div>
+                                    <div class="col-md-6">
+                                        <select class="form-select border-secondary-subtle" id="tinnoSelfhealEnable" data-type="i">
+                                            <option value="1">Enabled</option>
+                                            <option value="0">Disabled</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-2 mt-2 mt-md-0">
+                                        <button type="button" class="btn w-100 text-white" style="background-color: #198754;" onclick="applySingleConfig('tinnoSelfhealEnable', 'Self-Heal Enable', event)">Update</button>
+                                    </div>
+                                </div>
+
+                                <div class="row mb-4 align-items-center">
+                                    <div class="col-md-4 text-secondary fw-bold">RM Interval (mins)</div>
+                                    <div class="col-md-6">
+                                        <input type="number" class="form-control border-secondary-subtle" id="tinnoRMInterval" data-type="i">
+                                    </div>
+                                    <div class="col-md-2 mt-2 mt-md-0">
+                                        <button type="button" class="btn w-100 text-white" style="background-color: #198754;" onclick="applySingleConfig('tinnoRMInterval', 'RM Interval', event)">Update</button>
+                                    </div>
+                                </div>
+
+                                <div class="row mb-4 align-items-center">
+                                    <div class="col-md-4 text-secondary fw-bold">Avg CPU Threshold (%)</div>
+                                    <div class="col-md-6">
+                                        <input type="number" class="form-control border-secondary-subtle" id="tinnoAvgCPUThreshold" data-type="i" min="1" max="100">
+                                    </div>
+                                    <div class="col-md-2 mt-2 mt-md-0">
+                                        <button type="button" class="btn w-100 text-white" style="background-color: #198754;" onclick="applySingleConfig('tinnoAvgCPUThreshold', 'Avg CPU Threshold', event)">Update</button>
+                                    </div>
+                                </div>
+
+                                <div class="row mb-4 align-items-center">
+                                    <div class="col-md-4 text-secondary fw-bold">Avg Memory Threshold (%)</div>
+                                    <div class="col-md-6">
+                                        <input type="number" class="form-control border-secondary-subtle" id="tinnoAvgMemoryThreshold" data-type="i" min="1" max="100">
+                                    </div>
+                                    <div class="col-md-2 mt-2 mt-md-0">
+                                        <button type="button" class="btn w-100 text-white" style="background-color: #198754;" onclick="applySingleConfig('tinnoAvgMemoryThreshold', 'Avg Memory Threshold', event)">Update</button>
+                                    </div>
+                                </div>
+
+                                <div class="row mb-4 align-items-center">
+                                    <div class="col-md-4 text-secondary fw-bold">Conn Test Ping Interval (mins)</div>
+                                    <div class="col-md-6">
+                                        <input type="number" class="form-control border-secondary-subtle" id="tinnoConnTestPingInterval" data-type="i">
+                                    </div>
+                                    <div class="col-md-2 mt-2 mt-md-0">
+                                        <button type="button" class="btn w-100 text-white" style="background-color: #198754;" onclick="applySingleConfig('tinnoConnTestPingInterval', 'Conn Test Ping Interval', event)">Update</button>
+                                    </div>
+                                </div>
+
+                                <div class="row mb-4 align-items-center">
+                                    <div class="col-md-4 text-secondary fw-bold">Connectivity Server</div>
+                                    <div class="col-md-6">
+                                        <input type="text" class="form-control border-secondary-subtle" id="tinnoIPv4PingServer" data-type="s" placeholder="e.g. 8.8.8.8">
+                                    </div>
+                                    <div class="col-md-2 mt-2 mt-md-0">
+                                        <button type="button" class="btn w-100 text-white" style="background-color: #198754;" onclick="applySingleConfig('tinnoIPv4PingServer', 'Connectivity Server', event)">Update</button>
+                                    </div>
+                                </div>
+
+                                <div class="row mb-4 align-items-center">
+                                    <div class="col-md-4 text-secondary fw-bold">Speed Test Enable</div>
+                                    <div class="col-md-6">
+                                        <select class="form-select border-secondary-subtle" id="tinnoSHSpeedTestEnable" data-type="i">
+                                            <option value="1">Enabled</option>
+                                            <option value="0">Disabled</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-2 mt-2 mt-md-0">
+                                        <button type="button" class="btn w-100 text-white" style="background-color: #198754;" onclick="applySingleConfig('tinnoSHSpeedTestEnable', 'Speed Test Enable', event)">Update</button>
+                                    </div>
+                                </div>
+
+                                <div class="row mb-4 align-items-center">
+                                    <div class="col-md-4 text-secondary fw-bold">Speed Test Interval (mins)</div>
+                                    <div class="col-md-6">
+                                        <input type="number" class="form-control border-secondary-subtle" id="tinnoSHSpeedTestInterval" data-type="i">
+                                    </div>
+                                    <div class="col-md-2 mt-2 mt-md-0">
+                                        <button type="button" class="btn w-100 text-white" style="background-color: #198754;" onclick="applySingleConfig('tinnoSHSpeedTestInterval', 'Speed Test Interval', event)">Update</button>
+                                    </div>
+                                </div>
+
+                                <div class="row mb-4 align-items-center">
+                                    <div class="col-md-4 text-secondary fw-bold">Speed Test Threshold (Mbps)</div>
+                                    <div class="col-md-6">
+                                        <input type="number" class="form-control border-secondary-subtle" id="tinnoSHSpeedTestThreshold" data-type="i">
+                                    </div>
+                                    <div class="col-md-2 mt-2 mt-md-0">
+                                        <button type="button" class="btn w-100 text-white" style="background-color: #198754;" onclick="applySingleConfig('tinnoSHSpeedTestThreshold', 'Speed Test Threshold', event)">Update</button>
+                                    </div>
+                                </div>
+
+                                <div class="row mb-4 align-items-center">
+                                    <div class="col-md-4 text-secondary fw-bold">SSH Access Enable</div>
+                                    <div class="col-md-6">
+                                        <select class="form-select border-secondary-subtle" id="tinnoCmDoc31AccessSshEnable" data-type="i">
+                                            <option value="1">Enabled</option>
+                                            <option value="0">Disabled</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-2 mt-2 mt-md-0">
+                                        <button type="button" class="btn w-100 text-white" style="background-color: #198754;" onclick="applySingleConfig('tinnoCmDoc31AccessSshEnable', 'SSH Access Enable', event)">Update</button>
+                                    </div>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div> <!-- END CONFIGURE TAB -->
+            </main>
+        </div>
+    </div>
+    
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.3/build/global/luxon.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.umd.js"></script>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const configFields = document.querySelectorAll('#configForm input, #configForm select');
+            configFields.forEach(field => {
+                field.addEventListener('input', () => {
+                    field.dataset.dirty = 'true';
+                });
+            });
+        });
+
+        function toggleConfigSidebar() {
+            const sidebar = document.getElementById('configSidebar');
+            const overlay = document.getElementById('sidebarOverlay');
+            if (sidebar.classList.contains('open')) {
+                sidebar.classList.remove('open');
+                overlay.classList.remove('show');
+            } else {
+                sidebar.classList.add('open');
+                overlay.classList.add('show');
+            }
+        }
+
+        async function applyConfiguration() {
+            const btn = document.querySelector('#configForm button');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+            btn.disabled = true;
+
+            const fields = document.querySelectorAll('#configForm input, #configForm select');
+            let successCount = 0;
+            let errorCount = 0;
+            const statusMsg = document.getElementById('configStatusMessage');
+            statusMsg.style.display = 'block';
+            statusMsg.innerHTML = '<span class="text-primary"><i class="fas fa-spinner fa-spin"></i> Applying changes...</span>';
+
+            for (const field of fields) {
+                if (!field.value) continue; // Skip empty fields
+                
+                try {
+                    const response = await fetch('/api/snmpset', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            oid_name: field.id,
+                            value: field.value,
+                            type: field.dataset.type
+                        })
+                    });
+                    const data = await response.json();
+                    if (data.status === 'success') {
+                        successCount++;
+                    } else {
+                        errorCount++;
+                        console.error('Failed to set', field.id, data.error);
+                    }
+                } catch (e) {
+                    errorCount++;
+                    console.error('Error setting', field.id, e);
+                }
+            }
+
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+            
+            if (errorCount === 0 && successCount > 0) {
+                fields.forEach(f => delete f.dataset.dirty); // Clear dirty flags on success
+                statusMsg.innerHTML = `<span class="text-success"><i class="fas fa-check-circle"></i> Successfully applied ${successCount} settings!</span>`;
+            } else if (successCount > 0) {
+                fields.forEach(f => delete f.dataset.dirty); // Clear dirty flags on partial success too
+                statusMsg.innerHTML = `<span class="text-warning"><i class="fas fa-exclamation-triangle"></i> Applied ${successCount} settings, but ${errorCount} failed.</span>`;
+            } else if (errorCount > 0) {
+                statusMsg.innerHTML = `<span class="text-danger"><i class="fas fa-times-circle"></i> Failed to apply settings.</span>`;
+            } else {
+                statusMsg.innerHTML = `<span class="text-info"><i class="fas fa-info-circle"></i> No settings were changed.</span>`;
+            }
+            
+            setTimeout(() => {
+                statusMsg.style.display = 'none';
+            }, 5000);
+            
+            fetchSnmpData(); // Refresh UI values
+        }
+
+        // Initialize CPU Chart
+        const cpuCtx = document.getElementById('cpuChart').getContext('2d');
+        const cpuChart = new Chart(cpuCtx, {
+            type: 'line',
+            data: {
+                datasets: [{
+                    label: 'CPU Usage (%)',
+                    data: [],
+                    borderColor: '#28a745',
+                    backgroundColor: 'rgba(40, 167, 69, 0.2)',
+                    fill: true,
+                    tension: 0.4,
+                    pointRadius: 0,
+                    pointHoverRadius: 5
+                }, {
+                    label: 'Threshold',
+                    data: [],
+                    borderColor: '#dc3545',
+                    backgroundColor: 'rgba(220, 53, 69, 0.1)',
+                    fill: false,
+                    borderDash: [5, 5],
+                    pointRadius: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        type: 'time',
+                        time: {
+                            unit: 'minute',
+                            displayFormats: {
+                                minute: 'HH:mm'
+                            }
+                        },
+                        title: {
+                            display: true,
+                            text: 'Time (Last 20 Records)',
+                            font: { size: 14, weight: 'bold' },
+                            color: '#333333'
+                        },
+                        grid: { color: '#e0e0e0' }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        max: 100,
+                        title: {
+                            display: true,
+                            text: 'CPU Usage (%)',
+                            font: { size: 14, weight: 'bold' },
+                            color: '#333333'
+                        },
+                        grid: { color: '#e0e0e0' }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        position: 'top',
+                        labels: { font: { size: 12, weight: 'bold' }, color: '#333333' }
+                    },
+                    title: {
+                        display: false,
+                        text: 'CPU Usage',
+                        font: { size: 18, weight: 'bold' },
+                        color: '#333333',
+                        padding: 20
+                    },
+                    tooltip: {
+                        enabled: true,
+                        mode: 'index',
+                        intersect: false,
+                        callbacks: {
+                            label: function (context) {
+                                return `${context.dataset.label}: ${context.parsed.y}${context.dataset.label.includes('Threshold') ? '' : '%'}`;
+                            }
+                        }
+                    }
+                },
+                animation: {
+                    duration: 1000,
+                    easing: 'easeOutQuart'
+                }
+            }
+        });
+
+        // Initialize Memory Chart
+        const memoryCtx = document.getElementById('memoryChart').getContext('2d');
+        const memoryChart = new Chart(memoryCtx, {
+            type: 'line',
+            data: {
+                datasets: [{
+                    label: 'Free Memory (KB)',
+                    data: [],
+                    borderColor: '#28a745',
+                    backgroundColor: 'rgba(40, 167, 69, 0.2)',
+                    fill: true,
+                    tension: 0.4,
+                    pointRadius: 0
+                }, {
+                    label: 'Threshold (15000 KB)',
+                    data: [],
+                    borderColor: '#dc3545',
+                    backgroundColor: 'rgba(220, 53, 69, 0.1)',
+                    fill: false,
+                    borderDash: [5, 5],
+                    pointRadius: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        type: 'time',
+                        time: {
+                            unit: 'minute',
+                            displayFormats: {
+                                minute: 'HH:mm'
+                            }
+                        },
+                        title: {
+                            display: true,
+                            text: 'Time (Last 20 Records)',
+                            font: { size: 14, weight: 'bold' },
+                            color: '#333333'
+                        },
+                        grid: { color: '#e0e0e0' }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Free Memory (KB)',
+                            font: { size: 14, weight: 'bold' },
+                            color: '#333333'
+                        },
+                        grid: { color: '#e0e0e0' }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        position: 'top',
+                        labels: { font: { size: 12, weight: 'bold' }, color: '#333333' }
+                    },
+                    title: {
+                        display: false,
+                        text: 'Free Memory',
+                        font: { size: 18, weight: 'bold' },
+                        color: '#333333',
+                        padding: 20
+                    },
+                    tooltip: {
+                        enabled: true,
+                        mode: 'index',
+                        intersect: false,
+                        callbacks: {
+                            label: function (context) {
+                                return `${context.dataset.label}: ${context.parsed.y} KB`;
+                            }
+                        }
+                    }
+                },
+                animation: {
+                    duration: 1000,
+                    easing: 'easeOutQuart'
+                }
+            }
+        });
+
+        // Initialize Throughput Chart
+        const throughputCtx = document.getElementById('throughputChart').getContext('2d');
+        const throughputChart = new Chart(throughputCtx, {
+            type: 'line',
+            data: {
+                datasets: [{
+                    label: 'Throughput (Mbps)',
+                    data: [],
+                    borderColor: '#28a745',
+                    backgroundColor: 'rgba(40, 167, 69, 0.2)',
+                    fill: true,
+                    tension: 0.4,
+                    pointRadius: 0,
+                    pointHoverRadius: 5
+                }, {
+                    label: 'Threshold',
+                    data: [],
+                    borderColor: '#dc3545',
+                    backgroundColor: 'rgba(220, 53, 69, 0.1)',
+                    fill: false,
+                    borderDash: [5, 5],
+                    pointRadius: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        type: 'time',
+                        time: {
+                            unit: 'minute',
+                            displayFormats: {
+                                minute: 'HH:mm'
+                            }
+                        },
+                        title: {
+                            display: true,
+                            text: 'Time (Last 20 Records)',
+                            font: { size: 14, weight: 'bold' },
+                            color: '#333333'
+                        },
+                        grid: { color: '#e0e0e0' }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Throughput (Mbps)',
+                            font: { size: 14, weight: 'bold' },
+                            color: '#333333'
+                        },
+                        grid: { color: '#e0e0e0' }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        position: 'top',
+                        labels: { font: { size: 12, weight: 'bold' }, color: '#333333' }
+                    },
+                    title: {
+                        display: false,
+                        text: 'Throughput',
+                        font: { size: 18, weight: 'bold' },
+                        color: '#333333',
+                        padding: 20
+                    },
+                    tooltip: {
+                        enabled: true,
+                        mode: 'index',
+                        intersect: false,
+                        callbacks: {
+                            label: function (context) {
+                                return `${context.dataset.label}: ${context.parsed.y}${context.dataset.label.includes('Threshold') ? '' : ' Mbps'}`;
+                            }
+                        }
+                    }
+                },
+                animation: {
+                    duration: 1000,
+                    easing: 'easeOutQuart'
+                }
+            }
+        });
+
+        // Toggle WAN Status Visibility
+        const toggleWanStatusButton = document.getElementById('toggleWanStatus');
+        const wanStatusCard = document.getElementById('wanStatusCard');
+        let isWanStatusVisible = false;
+
+        toggleWanStatusButton.addEventListener('click', () => {
+            isWanStatusVisible = !isWanStatusVisible;
+            wanStatusCard.classList.toggle('show', isWanStatusVisible);
+            wanStatusCard.style.display = isWanStatusVisible ? 'block' : 'none';
+            toggleWanStatusButton.textContent = isWanStatusVisible ? 'Hide WAN Interface Status' : 'Show WAN Interface Status';
+            if (isWanStatusVisible) {
+                fetchWanStatus();
+            }
+        });
+
+        // Trigger Memory Leak Test
+        const triggerMemoryLeakButton = document.getElementById('triggerMemoryLeak');
+        const memoryLeakMessage = document.getElementById('memoryLeakMessage');
+        let pollInterval = null;
+
+        function showMemoryLeakMessage(message, isSuccess = false, isRunning = false) {
+            memoryLeakMessage.textContent = message;
+            memoryLeakMessage.classList.remove('success', 'running', 'error');
+            if (isSuccess) {
+                memoryLeakMessage.classList.add('success');
+            } else if (isRunning) {
+                memoryLeakMessage.classList.add('running');
+            } else {
+                memoryLeakMessage.classList.add('error');
+            }
+            memoryLeakMessage.classList.add('show');
+            memoryLeakMessage.style.display = 'block';
+            if (!isRunning) {
+                setTimeout(() => {
+                    memoryLeakMessage.classList.remove('show');
+                    memoryLeakMessage.style.display = 'none';
+                }, 30000);
+            }
+        }
+
+        async function checkMemoryLeakStatus() {
+            try {
+                const statusResponse = await fetch('/api/memory_leak_status', {
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                if (!statusResponse.ok) {
+                    throw new Error(`HTTP ${statusResponse.status}`);
+                }
+                const status = await statusResponse.json();
+
+                if (!status.running) {
+                    clearInterval(pollInterval);
+                    pollInterval = null;
+                    triggerMemoryLeakButton.disabled = false;
+
+                    if (status.last_result) {
+                        if (status.last_result.startsWith('success')) {
+                            const pid = status.leak_pid ? ` (PID: ${status.leak_pid})` : '';
+                            showMemoryLeakMessage(`Memory leak test completed successfully. Memory Leaking Process${pid} Detected`, true);
+                        } else {
+                            let errorMessage = 'Memory leak test failed';
+                            if (status.last_result.includes('Authentication')) {
+                                errorMessage = 'Authentication failed during memory leak test';
+                            } else if (status.last_result.includes('SSH')) {
+                                errorMessage = 'SSH connection error during memory leak test';
+                            } else if (status.last_result.includes('SNMP')) {
+                                errorMessage = 'SNMP command error during memory leak test';
+                            } else if (status.last_result.includes('timeout')) {
+                                errorMessage = 'Memory leak test timed out';
+                            } else {
+                                errorMessage = `Memory leak test failed: ${status.last_result}`;
+                            }
+                            showMemoryLeakMessage(`${errorMessage}. Please try again.`);
+                        }
+                    } else {
+                        showMemoryLeakMessage('Memory leak test completed but returned no results. Please try again.');
+                    }
+                } else {
+                    showMemoryLeakMessage('Memory leak detection is running', false, true);
+                }
+            } catch (error) {
+                console.error('Error checking memory leak status:', error);
+                clearInterval(pollInterval);
+                pollInterval = null;
+                triggerMemoryLeakButton.disabled = false;
+                let errorMessage = 'Error checking memory leak status';
+                if (error.message.includes('Failed to fetch')) {
+                    errorMessage = 'Unable to connect to memory leak status service';
+                } else if (error.message.includes('HTTP 500')) {
+                    errorMessage = 'Server error while checking memory leak status';
+                } else if (error.message.includes('HTTP 404')) {
+                    errorMessage = 'Memory leak status endpoint not found';
+                } else {
+                    errorMessage = `Error checking memory leak status: ${error.message}`;
+                }
+                showMemoryLeakMessage(`${errorMessage}. Please try again.`);
+            }
+        }
+
+        triggerMemoryLeakButton.addEventListener('click', async () => {
+            try {
+                triggerMemoryLeakButton.disabled = true;
+                showMemoryLeakMessage('Initiating memory leak detection test...', false, true);
+
+                const response = await fetch('/api/trigger_memory_leak', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (response.status === 202) {
+                    if (!pollInterval) {
+                        pollInterval = setInterval(checkMemoryLeakStatus, 5000);
+                    }
+                } else {
+                    triggerMemoryLeakButton.disabled = false;
+                    let errorMessage = 'Failed to start memory leak test';
+                    if (response.status === 400) {
+                        errorMessage = 'Invalid request parameters';
+                    } else if (response.status === 429) {
+                        errorMessage = 'Too many requests, please try again later';
+                    } else if (response.status === 500) {
+                        errorMessage = 'Server error';
+                    } else {
+                        errorMessage = `HTTP ${response.status}`;
+                    }
+                    showMemoryLeakMessage(`${errorMessage}. Please try again.`);
+                }
+            } catch (error) {
+                console.error('Error triggering memory leak:', error);
+                triggerMemoryLeakButton.disabled = false;
+                let errorMessage = 'Error initiating memory leak test';
+                if (error.message.includes('Failed to fetch')) {
+                    errorMessage = 'Unable to connect to memory leak test service';
+                } else {
+                    errorMessage = `Error: ${error.message}`;
+                }
+                showMemoryLeakMessage(`${errorMessage}. Please try again.`);
+            }
+        });
+
+        // Fetch SNMP data and update summary
+        async function fetchSnmpData() {
+            try {
+                const response = await fetch('/api/snmp');
+                const data = await response.json();
+                const summaryDiv = document.getElementById('selfHealSummary');
+                const monitoringInterval = document.getElementById('monitoringInterval');
+                const lastReboot = document.getElementById('lastReboot');
+                const lastAction = document.getElementById('lastAction');
+                const ipv4Address = document.getElementById('ipv4Address');
+                const pingInterval = document.getElementById('pingInterval');
+                const speedTestStatus = document.getElementById('speedTestStatus');
+                const speedTestInterval = document.getElementById('speedTestInterval');
+                const speedTestThreshold = document.getElementById('speedTestThreshold');
+                const rebootCount = document.getElementById('rebootCount');
+                const rebootReasons = document.getElementById('rebootReasons');
+                const healthBar = document.getElementById('healthBar');
+                
+                // Populate configuration form
+                if (data && data.length) {
+                    data.forEach(item => {
+                        if (item.key) {
+                            const field = document.getElementById(item.key);
+                            if (field && !field.dataset.dirty && document.activeElement !== field) { // Don't override if user is typing or has unsaved changes
+                                // For select elements vs inputs
+                                let val = item.value;
+                                if (val === 'Enabled') val = '1';
+                                else if (val === 'Disabled') val = '0';
+                                else if (val === 'Yes') val = '1';
+                                else if (val === 'No') val = '0';
+                                else if (typeof val === 'string' && val.includes(' minutes')) val = val.replace(' minutes', '');
+                                else if (typeof val === 'string' && val.includes(' Mbps')) val = val.replace(' Mbps', '');
+                                else if (typeof val === 'string' && val.includes(' %')) val = val.replace(' %', '');
+                                
+                                field.value = val;
+                            }
+                        }
+                    });
+                }
+
+                const selfHealStatus = data.find(d => d.name === 'Self-Healing Status')?.value || 'Unable to connect to modem';
+                const interval = data.find(d => d.name === 'Monitoring Interval')?.value || 'Unable to connect to modem';
+                const pingInt = data.find(d => d.name === 'Ping Test Interval')?.value || 'Unable to connect to modem';
+                const speedTestStat = data.find(d => d.name === 'Speed Test Status')?.value || 'Unable to connect to modem';
+                const speedTestInt = data.find(d => d.name === 'Speed Test Interval')?.value || 'Unable to connect to modem';
+                const throughputStatus = data.find(d => d.name === 'Low Throughput Status')?.value || 'Unable to connect to modem';
+                let summary;
+                if (selfHealStatus === 'Enabled') {
+                    summary = `Self-Healing is <span class="badge-status badge bg-success">${selfHealStatus}</span> `;
+                    summary += `An advanced intelligent tool which monitors system resources every <strong>${interval}</strong>, performs connectivity tests every <strong>${pingInt}</strong> and `;
+                    summary += speedTestStat === 'Enabled' ?
+                        `keeps track of throughput by running speed tests every <strong>${speedTestInt}</strong>. ` :
+                        `has speed tests disabled. `;
+                } else {
+                    summary = `Self-Healing is <span class="badge-status badge bg-danger">${selfHealStatus}</span> `;
+                    summary += `Unable to connect to the modem. Please check the modem's connectivity and try again.`;
+                }
+                summaryDiv.innerHTML = summary;
+
+                monitoringInterval.textContent = interval;
+                lastReboot.textContent = data.find(d => d.name === 'Last Reboot')?.value || 'Unable to connect to modem';
+                lastAction.textContent = data.find(d => d.name === 'Last Action Taken')?.value || 'Unable to connect to modem';
+                ipv4Address.textContent = data.find(d => d.name === 'IPv4 Ping Server')?.value || 'Unable to connect to modem';
+                pingInterval.textContent = pingInt;
+                speedTestStatus.textContent = speedTestStat;
+                speedTestInterval.textContent = speedTestInt;
+                speedTestThreshold.textContent = data.find(d => d.name === 'Speed Test Threshold')?.value || 'Unable to connect to modem';
+                const lastRebootCount = data.find(d => d.name === 'Last Reboot Counter')?.value || 'Unable to connect';
+                let rebootCountText;
+                rebootCountText = `${lastRebootCount} reboots`;
+                rebootCount.textContent = rebootCountText;
+
+                // Process self-healing events
+                const historicalEvents = data.find(d => d.name === 'Historical Reboot Reasons')?.value || ['Unable to connect to modem'];
+                if (Array.isArray(historicalEvents) && historicalEvents.length > 0 && historicalEvents[0] !== 'Unable to connect to modem') {
+                    selfHealEvents.innerHTML = `
+                        <ul class="self-heal-events-list">
+                            ${historicalEvents.map(event => {
+                                let message = '';
+                                const parts = event.split(' - ');
+                                const timestamp = parts[0] || '';
+                                const reason = parts[1] || '';
+                                
+                                if (!reason) {
+                                    message = `On ${timestamp}, a reboot was triggered.`;
+                                } else if (reason === 'MEM_THRESHOLD') {
+                                    message = `On ${timestamp}, memory threshold was exceeded, triggering a reboot.`;
+                                } else if (reason === 'PING_FAILED') {
+                                    message = `On ${timestamp}, a ping failure was detected, triggering a reboot.`;
+                                } else if (reason.includes && reason.includes('SPEED_TEST')) {
+                                    message = `On ${timestamp}, a speed test was conducted with result: ${reason.split(' - ')[1] || 'unknown'}.`;
+                                } else {
+                                    message = `On ${timestamp}, high CPU usage was detected, initiating a reboot.`;
+                                }
+                                return `<li>${message}</li>`;
+                            }).join('')}
+                        </ul>
+                    `;
+                } else {
+                    selfHealEvents.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Unable to retrieve self-healing events due to modem connectivity issues.';
+                }
+
+                healthBar.style.width = selfHealStatus === 'Enabled' ? '100%' : '0%';
+            } catch (error) {
+                console.error('Error fetching SNMP data:', error);
+                
+                // Safe null checks before updating elements
+                const selfHealSummary = document.getElementById('selfHealSummary');
+                if (selfHealSummary) {
+                    selfHealSummary.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Unable to load self-healing data due to server issues.';
+                }
+                
+                const rebootReasons = document.getElementById('rebootReasons');
+                if (rebootReasons) {
+                    rebootReasons.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Unable to retrieve reboot reasons due to server issues.';
+                }
+                
+                const healthBarEl = document.getElementById('healthBar');
+                if (healthBarEl) {
+                    healthBarEl.style.width = '0%';
+                }
+                
+                const monitoringInterval = document.getElementById('monitoringInterval');
+                if (monitoringInterval) monitoringInterval.textContent = 'Unable to connect to modem';
+                
+                const lastReboot = document.getElementById('lastReboot');
+                if (lastReboot) lastReboot.textContent = 'Unable to connect to modem';
+                
+                const lastAction = document.getElementById('lastAction');
+                if (lastAction) lastAction.textContent = 'Unable to connect to modem';
+                
+                const ipv4Address = document.getElementById('ipv4Address');
+                if (ipv4Address) ipv4Address.textContent = 'Unable to connect to modem';
+                
+                const pingInterval = document.getElementById('pingInterval');
+                if (pingInterval) pingInterval.textContent = 'Unable to connect to modem';
+                
+                const speedTestStatus = document.getElementById('speedTestStatus');
+                if (speedTestStatus) speedTestStatus.textContent = 'Unable to connect to modem';
+                
+                const speedTestInterval = document.getElementById('speedTestInterval');
+                if (speedTestInterval) speedTestInterval.textContent = 'Unable to connect to modem';
+                
+                const speedTestThreshold = document.getElementById('speedTestThreshold');
+                if (speedTestThreshold) speedTestThreshold.textContent = 'Unable to connect to modem';
+            }
+        }
+
+        // Fetch WAN status and update display
+        async function fetchWanStatus() {
+            try {
+                const response = await fetch('/api/wan0_status');
+                const data = await response.json();
+                const wanStatusDiv = document.getElementById('wanStatus');
+                if (data.status === 'Connected') {
+                    const rxDropped = Number(data.rx_dropped) || 0;
+                    const txDropped = Number(data.tx_dropped) || 0;
+                    wanStatusDiv.innerHTML = `
+                        <ul class="wan-status-list">
+                            <li><span>IP Address:</span><span>${data.ip_address}</span></li>
+                            <li><span>Packets Received:</span><span>${data.rx_packets}</span></li>
+                            <li><span>Packets Sent:</span><span>${data.tx_packets}</span></li>
+                            <li><span>Receive Errors:</span><span>${data.rx_errors}</span></li>
+                            <li><span>Send Errors:</span><span>${data.tx_errors}</span></li>
+                            <li><span>Packets Dropped:</span><span>${rxDropped + txDropped}</span></li>
+                            <li><span>Last Updated:</span><span>${data.timestamp}</span></li>
+                        </ul>
+                    `;
+                } else {
+                    wanStatusDiv.innerHTML = `
+                        <div class="wan-status-message">
+                            <i class="fas fa-exclamation-triangle"></i> WAN Interface Not Available
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                console.error('Error fetching WAN status:', error);
+                document.getElementById('wanStatus').innerHTML = `
+                    <div class="wan-status-message">
+                        <i class="fas fa-exclamation-triangle"></i> Unable to load connection status due to server issues.
+                    </div>
+                `;
+            }
+        }
+
+        // Fetch QoS status and update display
+        async function fetchQosStatus() {
+            try {
+                const response = await fetch('/api/qos_status');
+                const data = await response.json();
+                const qosStatusDiv = document.getElementById('qosStatus');
+                const qosActionMessage = document.getElementById('qosActionMessage');
+                qosStatusDiv.innerHTML = `
+                    <li><i class="fas fa-arrow-down"></i><span>Incoming Discarded Packets:</span><span>${data.in_discards ?? 'Unavailable'}</span></li>
+                    <li><i class="fas fa-arrow-up"></i><span>Outgoing Discarded Packets:</span><span>${data.out_discards ?? 'Unavailable'}</span></li>
+                    <li><i class="fas fa-phone"></i><span>Voice DQoS:</span><span>${data.qos_direction}</span></li>
+                `;
+                if (data.adjusted_due_to_discards) {
+                    qosActionMessage.textContent = 'Network quality adjusted to optimize data flow due to packet discards.';
+                    qosActionMessage.classList.add('show');
+                } else {
+                    qosActionMessage.textContent = '';
+                    qosActionMessage.classList.remove('show');
+                }
+            } catch (error) {
+                console.error('Error fetching QoS status:', error);
+                document.getElementById('qosStatus').innerHTML = `
+                    <li><i class="fas fa-exclamation-triangle"></i><span>Incoming Discarded Packets:</span><span>Error</span></li>
+                    <li><i class="fas fa-exclamation-triangle"></i><span>Outgoing Discarded Packets:</span><span>Error</span></li>
+                    <li><i class="fas fa-exclamation-triangle"></i><span>Voice DQoS:</span><span>Error</span></li>
+                `;
+                document.getElementById('qosActionMessage').textContent = '';
+                document.getElementById('qosActionMessage').classList.remove('show');
+            }
+        }
+
+        // Fetch usage data and update charts
+        async function updateCharts() {
+            try {
+                const response = await fetch('/api/usage');
+                const data = await response.json();
+                if (data.error) {
+                    console.error('Usage data error:', data.error);
+                    return;
+                }
+
+                // Limit to the last 20 records
+                const limitLast20 = (dataset) => dataset.slice(-20);
+
+                // Update CPU Chart
+                const cpuData = limitLast20(data.cpu || []);
+                cpuChart.data.datasets[0].data = cpuData;
+                const cpuThreshold = data.cpu_threshold || 80; // Fallback to 80 if undefined
+                cpuChart.data.datasets[1].label = `Threshold (${cpuThreshold}%)`;
+                const cpuThresholdData = cpuData.map(point => ({
+                    x: point.x,
+                    y: cpuThreshold
+                }));
+                cpuChart.data.datasets[1].data = cpuThresholdData;
+                cpuChart.update();
+
+                // Update Memory Chart
+                const memoryData = limitLast20(data.memory || []);
+                memoryChart.data.datasets[0].data = memoryData;
+                const memoryThresholdData = memoryData.map(point => ({
+                    x: point.x,
+                    y: 15000
+                }));
+                memoryChart.data.datasets[1].data = memoryThresholdData;
+                memoryChart.update();
+
+                // Update Throughput Chart
+                const throughputData = limitLast20(data.throughput || []);
+                throughputChart.data.datasets[0].data = throughputData;
+                const throughputThreshold = data.speedtest_threshold || 100; // Fallback to 100 if undefined
+                throughputChart.data.datasets[1].label = `Threshold (${throughputThreshold} Mbps)`;
+                const throughputThresholdData = throughputData.map(point => ({
+                    x: point.x,
+                    y: throughputThreshold
+                }));
+                throughputChart.data.datasets[1].data = throughputThresholdData;
+                throughputChart.update();
+            } catch (error) {
+                console.error('Error fetching usage data:', error);
+            }
+        }
+
+        // Initial fetch and periodic updates
+        fetchSnmpData();
+        fetchQosStatus();
+        updateCharts();
+        setInterval(fetchSnmpData, 30000); // Update SNMP data every 30 seconds
+        setInterval(fetchQosStatus, 30000); // Update QoS status every 30 seconds
+        setInterval(updateCharts, 10000); // Update charts every 10 seconds
+    </script>
+
+<script>
+    function switchTab(tabId) {
+        document.getElementById('tab-summary').style.display = (tabId === 'summary') ? 'block' : 'none';
+        document.getElementById('tab-configure').style.display = (tabId === 'configure') ? 'block' : 'none';
+        
+        document.getElementById('menu-summary').classList.toggle('active', tabId === 'summary');
+        document.getElementById('menu-configure').classList.toggle('active', tabId === 'configure');
+    }
+
+    async function applySingleConfig(fieldId, fieldName, event) {
+        const btn = event.currentTarget;
+        const originalHtml = btn.innerHTML;
+        const field = document.getElementById(fieldId);
+        if (!field || !field.value) return;
+        
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+        btn.disabled = true;
+        
+        const statusMsg = document.getElementById('configStatusMessage');
+        statusMsg.classList.remove('d-none', 'alert-success', 'alert-danger');
+        
+        try {
+            const response = await fetch('/api/snmpset', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    oid_name: fieldId,
+                    value: field.value,
+                    type: field.dataset.type
+                })
+            });
+            const data = await response.json();
+            
+            if (data.status === 'success') {
+                statusMsg.classList.add('alert-success');
+                statusMsg.innerHTML = `<i class="fas fa-check-circle me-1"></i> Updated ` + fieldName + ` successfully!`;
+                delete field.dataset.dirty;
+                fetchSnmpData();
+            } else {
+                throw new Error(data.error || 'Unknown error');
+            }
+        } catch (err) {
+            statusMsg.classList.add('alert-danger');
+            statusMsg.innerHTML = `<i class="fas fa-times-circle me-1"></i> Failed to update ` + fieldName + `: ` + err.message;
+        }
+        
+        btn.innerHTML = originalHtml;
+        btn.disabled = false;
+        
+        statusMsg.classList.remove('d-none');
+        setTimeout(() => {
+            statusMsg.classList.add('d-none');
+        }, 4000);
+    }
+    
+    // Removing old applyConfiguration if it conflicts
+    window.applyConfiguration = undefined;
+</script>
+</body>
+</html>
