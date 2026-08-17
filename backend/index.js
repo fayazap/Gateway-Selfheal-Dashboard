@@ -125,7 +125,7 @@ async function saveStats(filePath, stats) {
 // API: Fetch device summary
 app.get('/api/summary', async (req, res) => {
   try {
-    const hostname = await sshExec('cat /proc/sys/kernel/hostname || dmcli eRT getv Device.DeviceInfo.X_COMCAST-COM_CM_MAC 2>/dev/null | awk \'/value:/{print $NF}\'');
+    const hostname = await sshExec('dmcli eRT getv Device.DeviceInfo.DeviceCategory 2>/dev/null | awk \'/value:/{sub(/.*value:[ \\t]*/,""); print}\' || cat /proc/sys/kernel/hostname || dmcli eRT getv Device.DeviceInfo.X_COMCAST-COM_CM_MAC 2>/dev/null | awk \'/value:/{print $NF}\'');
     const uptime = await sshExec("uptime | awk -F'up ' '{print $2}' | awk -F',' '{print $1}'");
     const cpuUsage = await sshExec('awk \'/^cpu / {usage=($2+$4)*100/($2+$4+$5); printf "%.1f%%\\n", usage}\' /proc/stat');
     const memoryUsage = await sshExec("free 2>/dev/null | awk '/Mem:/ {print int($3*100/$2) \"%\"}' | grep -v '^$' || " + "awk '/MemTotal/{t=$2} /MemAvailable/{a=$2} END{print int((t-a)*100/t) \"%\"}' /proc/meminfo");

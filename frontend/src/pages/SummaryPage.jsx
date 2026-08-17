@@ -378,15 +378,16 @@ function SummaryPage() {
             <div className="space-y-2">
               <div className="flex justify-between items-center py-1 border-b border-gray-100">
                 <span className="text-gray-600 text-sm font-medium">Device Name:</span>
-                <span className="text-gray-900 font-semibold text-sm">PON Gateway</span>
+                <span className="text-gray-900 font-semibold text-sm">{summary.hostname || 'DOCSIS EMTA'}</span>
               </div>
               <div className="flex justify-between items-center py-1 border-b border-gray-100">
                 <span className="text-gray-600 text-sm font-medium">Model:</span>
-                <span className="text-gray-900 text-sm">B521FG</span>
+                <span className="text-gray-900 text-sm">{summary.deviceModel || 'N/A'}</span>
               </div>
               <div className="flex justify-between items-center py-1 border-b border-gray-100">
                 <span className="text-gray-600 text-sm font-medium">Manufacturer:</span>
-                <span className="text-gray-900 text-sm">Tinno</span>
+                <span className="text-gray-900 text-sm">Tinno, Inc.</span>
+                {/* <span className="text-gray-900 text-sm">{summary.manufacturer || 'N/A'}</span> */}
               </div>
               <div className="flex justify-between items-center py-1">
                 <span className="text-gray-600 text-sm font-medium">Firmware Version:</span>
