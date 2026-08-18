@@ -4,10 +4,10 @@ FROM python:3.10-slim
 ENV TZ=Asia/Kolkata
 
 # Set default environment variables for SNMP
-ENV SNMP_COMMUNITY=dilip-one
-ENV SNMP_HOST=192.168.246.100
+ENV SNMP_COMMUNITY=public
+ENV SNMP_HOST=192.168.246.72
 ENV MTA_COMMUNITY=private
-ENV MTA_IP=192.168.246.101
+ENV MTA_IP=192.168.246.73
 
 # Install dependencies, including iputils-ping for ping command
 RUN apt-get update && apt-get install -y \
