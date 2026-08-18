@@ -27,7 +27,10 @@ WORKDIR /app
 COPY . .
 
 # Install Python dependencies
-RUN pip install --no-cache-dir flask paramiko
+# paramiko is pinned to 4.0.0: paramiko 5.x removed support for the "ssh-rsa"
+# host-key type entirely, which is the only host-key type this modem's old
+# Dropbear (2019) SSH server offers - anything newer can never connect to it.
+RUN pip install --no-cache-dir flask "paramiko==4.0.0"
 
 # Make start.sh executable
 RUN chmod +x start.sh

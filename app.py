@@ -1,6 +1,7 @@
 from flask import Flask, render_template, jsonify, request
 import subprocess
 import re
+import socket
 import paramiko
 import time
 import logging
@@ -93,6 +94,20 @@ DEVICE_DQOS_OID = "1.3.6.1.4.1.17318.1.25.50.30.100.0"
 MEMORY_LEAK_PORT = 22
 MEMORY_LEAK_USERNAME = "root"
 MEMORY_LEAK_PASSWORD = "tInNo551@Cm"
+# The modem runs an old Dropbear (2019) SSH server that only offers the
+# legacy "ssh-rsa" host-key type (confirmed via `ssh -vvv`). paramiko 5.x
+# dropped "ssh-rsa" support entirely (and "ssh-dss" even earlier, in 4.x) -
+# requirements.txt/Dockerfile must pin paramiko==4.0.0, the newest release
+# that still recognizes it. Without that pin, setting key_types below to
+# include an algorithm paramiko doesn't know raises ValueError("unknown
+# cipher") - a misleading message from paramiko's SecurityOptions setter,
+# which reuses that string for every unrecognized algorithm, not just
+# ciphers.
+MEMORY_LEAK_HOST_KEY_TYPES = [
+    "ssh-rsa", "rsa-sha2-256", "rsa-sha2-512",
+    "ecdsa-sha2-nistp256", "ecdsa-sha2-nistp384", "ecdsa-sha2-nistp521",
+    "ssh-ed25519",
+]
 memory_leak_running = False
 memory_leak_lock = threading.Lock()
 
@@ -149,44 +164,52 @@ def cause_memory_leak():
         memory_leak_status["leak_pid"] = None
 
     try:
-        # for attempt in range(3):
-        #     try:
-        #         logger.info(f"Enabling SSH access (Attempt {attempt + 1})...")
-        #         subprocess.check_output(
-        #             [
-        #                 "snmpset", "-v", "2c", "-c", SNMP_COMMUNITY_WRITE, SNMP_HOST,
-        #                 OID_LIST["tinnoCmDoc31AccessSshEnable"], "i", "1"
-        #             ],
-        #             universal_newlines=True
-        #         )
-        #         logger.info("SSH access enabled successfully.")
-        #         time.sleep(2)
-        #         break
-        #     except subprocess.CalledProcessError as e:
-        #         logger.warning(f"SSH enable attempt {attempt + 1} failed. Reason: {e}")
-        #         if attempt == 2:
-        #             logger.error("Failed to enable SSH after 3 attempts.")
-        #             memory_leak_status["running"] = False
-        #             memory_leak_running = False
-        #             return False
-        #         time.sleep(2)
+        # The modem's Dropbear SSH daemon is off unless
+        # tinnoCmDoc31AccessSshEnable is explicitly set to 1 - confirmed live
+        # via snmpwalk (reads 0 by default) and by watching port 22 open
+        # immediately after this snmpset. Without this, ssh.connect() gets
+        # "[Errno 111] Connection refused" because nothing is listening.
+        for attempt in range(3):
+            try:
+                logger.info(f"Enabling SSH access (Attempt {attempt + 1})...")
+                subprocess.check_output(
+                    [
+                        "snmpset", "-v", "2c", "-c", SNMP_COMMUNITY_WRITE, SNMP_HOST,
+                        OID_LIST["tinnoCmDoc31AccessSshEnable"], "i", "1"
+                    ],
+                    universal_newlines=True
+                )
+                logger.info("SSH access enabled successfully.")
+                time.sleep(2)
+                break
+            except subprocess.CalledProcessError as e:
+                logger.warning(f"SSH enable attempt {attempt + 1} failed. Reason: {e}")
+                if attempt == 2:
+                    logger.error("Failed to enable SSH after 3 attempts.")
+                    memory_leak_status["running"] = False
+                    memory_leak_running = False
+                    return False
+                time.sleep(2)
 
         logger.info(f"Connecting to {SNMP_HOST}:{MEMORY_LEAK_PORT}...")
         ssh = paramiko.SSHClient()
         ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
         for attempt in range(3):
+            transport = None
             try:
-                ssh.connect(
-                    SNMP_HOST,
-                    port=MEMORY_LEAK_PORT,
-                    username=MEMORY_LEAK_USERNAME,
-                    password=MEMORY_LEAK_PASSWORD,
-                    timeout=10
-                )
+                sock = socket.create_connection((SNMP_HOST, MEMORY_LEAK_PORT), timeout=10)
+                transport = paramiko.Transport(sock)
+                # Allow the legacy host-key types this old Dropbear offers
+                # (paramiko no longer accepts them by default).
+                transport.get_security_options().key_types = MEMORY_LEAK_HOST_KEY_TYPES
+                transport.connect(username=MEMORY_LEAK_USERNAME, password=MEMORY_LEAK_PASSWORD)
+                ssh._transport = transport
                 logger.info("SSH connection established successfully.")
                 break
             except Exception as e:
+                if transport is not None:
+                    transport.close()
                 if attempt < 2:
                     logger.warning(f"SSH connection attempt {attempt + 1} failed. Retrying... Reason: {e}")
                     time.sleep(2)
@@ -276,24 +299,26 @@ def cause_memory_leak():
         logger.info("SSH connection closed.")
         logger.info("Memory leak test completed successfully")
         memory_leak_status["last_result"] = f"success: Memory Leaking Process (PID {leak_pid}) Detected and Stopped"
-        # for attempt in range(3):
-        #     try:
-        #         logger.info(f"Disabling SSH access (Attempt {attempt + 1})...")
-        #         subprocess.check_output(
-        #             [
-        #                 "snmpset", "-v", "2c", "-c", SNMP_COMMUNITY_WRITE, SNMP_HOST,
-        #                 OID_LIST["tinnoCmDoc31AccessSshEnable"], "i", "0"
-        #             ],
-        #             universal_newlines=True
-        #         )
-        #         logger.info("SSH access disabled successfully.")
-        #         time.sleep(2)
-        #         break
-        #     except subprocess.CalledProcessError as e:
-        #         logger.warning(f"SSH disable attempt {attempt + 1} failed. Reason: {e}")
-        #         if attempt == 2:
-        #             logger.error("Failed to disable SSH after 3 attempts.")
-        #         time.sleep(2)
+        # Close SSH access back down now that the test is done, mirroring the
+        # enable step above, so the modem isn't left reachable on port 22.
+        for attempt in range(3):
+            try:
+                logger.info(f"Disabling SSH access (Attempt {attempt + 1})...")
+                subprocess.check_output(
+                    [
+                        "snmpset", "-v", "2c", "-c", SNMP_COMMUNITY_WRITE, SNMP_HOST,
+                        OID_LIST["tinnoCmDoc31AccessSshEnable"], "i", "0"
+                    ],
+                    universal_newlines=True
+                )
+                logger.info("SSH access disabled successfully.")
+                time.sleep(2)
+                break
+            except subprocess.CalledProcessError as e:
+                logger.warning(f"SSH disable attempt {attempt + 1} failed. Reason: {e}")
+                if attempt == 2:
+                    logger.error("Failed to disable SSH after 3 attempts.")
+                time.sleep(2)
         return True
 
     except paramiko.AuthenticationException:

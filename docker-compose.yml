@@ -1,0 +1,12 @@
+services:
+  selfheal-dashboard:
+    build: .
+    container_name: selfheal-dashboard
+    ports:
+      - "5050:5050"
+    environment:
+      SNMP_COMMUNITY: public
+      SNMP_HOST: 192.168.246.72
+      MTA_COMMUNITY: private
+      MTA_IP: 192.168.246.73
+    restart: unless-stopped
