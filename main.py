@@ -1,12 +1,17 @@
 import logging
 import time
 import re
-import datetime
 import subprocess
 import platform
 import argparse
 
-# Set up argument parser
+from utils import log_value
+
+# Set up argument parser. Defaults are just a safety net for an unsupported
+# bare invocation - start.sh (the only entry point this app is actually run
+# through, in Docker or standalone) always passes both flags explicitly,
+# resolving them from its own env-var defaults, so an os.getenv() layer here
+# would just duplicate that and never actually take effect.
 parser = argparse.ArgumentParser(description="SNMP Modem Statistics Collector")
 parser.add_argument("--community", default="dilip-one", help="SNMP community string (default: dilip-one)")
 parser.add_argument("--host", default="192.168.246.100", help="SNMP host address (default: 192.168.246.100)")
@@ -68,17 +73,6 @@ def parse_packet_counts(snmp_output):
     logging.warning("Could not parse packet counts from SNMP output")
     logging.info(f"Raw SNMP output for packet counts: {repr(snmp_output)}")  # Log raw output for debugging
     return None, None, None, None
-
-def log_value(filename, value, unit, overwrite=False, is_last_known=False):
-    """Append or overwrite a value with timestamp to a log file."""
-    try:
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        mode = "w" if overwrite else "a"
-        note = " (last known)" if is_last_known else ""
-        with open(filename, mode) as f:
-            f.write(f"{timestamp}, {value} {unit}{note}\n")
-    except Exception as e:
-        logging.error(f"Failed to log to {filename}: {e}")
 
 def check_host_reachability(hostname):
     """Check if the host is reachable using ping."""

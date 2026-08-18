@@ -5,18 +5,23 @@ import socket
 import paramiko
 import time
 import logging
-import datetime
+import logging.handlers
 import threading
-import os
 from functools import wraps
 import argparse
 
-# Set up argument parser
+from utils import log_value, read_log_data
+
+# Set up argument parser. Defaults are just a safety net for an unsupported
+# bare invocation - start.sh (the only entry point this app is actually run
+# through, in Docker or standalone) always passes all four flags explicitly,
+# resolving them from its own env-var defaults, so an os.getenv() layer here
+# would just duplicate that and never actually take effect.
 parser = argparse.ArgumentParser(description="SNMP Modem Monitoring Flask App")
-parser.add_argument("--community", default=os.getenv("SNMP_COMMUNITY", "dilip-one"), help="SNMP community string for read and write (default: dilip-one)")
-parser.add_argument("--host", default=os.getenv("SNMP_HOST", "192.168.246.100"), help="SNMP host address (default: 192.168.246.100)")
-parser.add_argument("--mta-community", default=os.getenv("MTA_COMMUNITY", "private"), help="MTA community string (default: private)")
-parser.add_argument("--mta-ip", default=os.getenv("MTA_IP", "192.168.246.101"), help="MTA IP address (default: 192.168.246.101)")
+parser.add_argument("--community", default="dilip-one", help="SNMP community string for read and write (default: dilip-one)")
+parser.add_argument("--host", default="192.168.246.100", help="SNMP host address (default: 192.168.246.100)")
+parser.add_argument("--mta-community", default="private", help="MTA community string (default: private)")
+parser.add_argument("--mta-ip", default="192.168.246.101", help="MTA IP address (default: 192.168.246.101)")
 args = parser.parse_args()
 
 # Assign arguments to variables
@@ -33,7 +38,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('modem_monitor.log'),
+        logging.handlers.RotatingFileHandler('modem_monitor.log', maxBytes=1_000_000, backupCount=3),
         logging.StreamHandler()
     ]
 )
@@ -53,7 +58,6 @@ OID_LIST = {
     "tinnoSHSpeedTestInterval": "1.3.6.1.4.1.62596.1.1.1.41",
     "tinnoSHSpeedTestThreshold": "1.3.6.1.4.1.62596.1.1.1.42",
     "tinnoSHIsLowThroughput": "1.3.6.1.4.1.62596.1.1.1.43",
-    "tinnoRebootInterval": "1.3.6.1.4.1.62596.1.1.1.27",
     "tinnoLastRebootCounter": "1.3.6.1.4.1.62596.1.1.1.48",
     "tinnoHistoricalRebootReason": "1.3.6.1.4.1.62596.1.1.1.50",
     "ifInDiscards": "1.3.6.1.2.1.2.2.1.13.2",
@@ -87,6 +91,30 @@ VALUE_MAPPINGS = {
     "tinnoCmDoc31AccessSshEnable": {"0": "Disabled", "1": "Enabled"}
 }
 
+# Human-readable labels for OID_LIST entries, used by get_snmp_data(). Kept
+# as a single module-level dict instead of being redefined in each of
+# get_snmp_data()'s try/except branches.
+DISPLAY_NAMES = {
+    "tinnoSelfhealEnable": "Self-Healing Status",
+    "tinnoRMInterval": "Monitoring Interval",
+    "tinnoAvgCPUThreshold": "CPU Threshold",
+    "tinnoAvgMemoryThreshold": "Avg Memory Threshold",
+    "tinnoLastRebootReason": "Last Reboot",
+    "tinnoLastActionTakenTime": "Last Action Taken",
+    "tinnoIPv4PingServer": "IPv4 Ping Server",
+    "tinnoConnTestPingInterval": "Ping Test Interval",
+    "tinnoSHSpeedTestEnable": "Speed Test Status",
+    "tinnoSHSpeedTestInterval": "Speed Test Interval",
+    "tinnoSHSpeedTestThreshold": "Speed Test Threshold",
+    "tinnoSHIsLowThroughput": "Low Throughput Status",
+    "tinnoLastRebootCounter": "Last Reboot Counter",
+    "tinnoHistoricalRebootReason": "Historical Reboot Reasons",
+    "ifInDiscards": "Incoming Discarded Packets",
+    "ifOutDiscards": "Outgoing Discarded Packets",
+    "tinnoCmDoc31AccessSshEnable": "SSH Access Enable",
+    "tinnoCmDoc31AccessTechnicianPassword": "Technician Password"
+}
+
 # SNMP Settings
 DEVICE_DQOS_OID = "1.3.6.1.4.1.17318.1.25.50.30.100.0"
 
@@ -114,7 +142,7 @@ memory_leak_lock = threading.Lock()
 def async_endpoint(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        thread = threading.Thread(target=f, args=args, kwargs=kwargs)
+        thread = threading.Thread(target=f, args=args, kwargs=kwargs, daemon=True)
         thread.start()
         return jsonify({"status": "Operation started"}), 202
     return decorated_function
@@ -141,14 +169,6 @@ def parse_free_memory(memory_str):
         return free_mem
     logger.warning("Could not parse free memory from free -m output")
     return 0
-
-def log_value(filename, value, unit):
-    try:
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        with open(filename, "a") as f:
-            f.write(f"{timestamp}, {value} {unit}\n")
-    except Exception as e:
-        logger.error(f"Failed to log to {filename}: {str(e)}")
 
 memory_leak_status = {"running": False, "last_result": None, "leak_pid": None}
 
@@ -379,77 +399,22 @@ def get_snmp_data():
                         elif name == "tinnoLastActionTakenTime":
                             try:
                                 value = time.strftime("%Y-%m-%d %H:%M", time.strptime(raw_value, "%Y%m%d%H%M"))
-                            except:
+                            except ValueError:
                                 value = raw_value
                         else:
                             value = VALUE_MAPPINGS.get(name, {}).get(raw_value, raw_value)
                     else:
                         value = "No data"
-                display_name = {
-                    "tinnoSelfhealEnable": "Self-Healing Status",
-                    "tinnoRMInterval": "Monitoring Interval",
-                    "tinnoAvgCPUThreshold": "CPU Threshold",  # Added
-                    "tinnoLastRebootReason": "Last Reboot",
-                    "tinnoLastActionTakenTime": "Last Action Taken",
-                    "tinnoIPv4PingServer": "IPv4 Ping Server",
-                    "tinnoConnTestPingInterval": "Ping Test Interval",
-                    "tinnoSHSpeedTestEnable": "Speed Test Status",
-                    "tinnoSHSpeedTestInterval": "Speed Test Interval",
-                    "tinnoSHSpeedTestThreshold": "Speed Test Threshold",
-                    "tinnoSHIsLowThroughput": "Low Throughput Status",
-                    "tinnoLastRebootCounter": "Last Reboot Counter",
-                    "tinnoHistoricalRebootReason": "Historical Reboot Reasons",
-                    "ifInDiscards": "Incoming Discarded Packets",
-                    "ifOutDiscards": "Outgoing Discarded Packets",
-                    "tinnoCmDoc31AccessSshEnable": "SSH Access Status",
-                    "tinnoCmDoc31AccessSshEnable": "SSH Access Enable",
-                    "tinnoCmDoc31AccessTechnicianPassword": "Technician Password"
-                }.get(name, name)
+                display_name = DISPLAY_NAMES.get(name, name)
                 data.append({"name": display_name, "value": value, "key": name})
             except subprocess.CalledProcessError as e:
                 logger.error(f"SNMP command failed for {name}: {e}")
-                display_name = {
-                    "tinnoSelfhealEnable": "Self-Healing Status",
-                    "tinnoRMInterval": "Monitoring Interval",
-                    "tinnoAvgCPUThreshold": "CPU Threshold",  # Added
-                    "tinnoLastRebootReason": "Last Reboot",
-                    "tinnoLastActionTakenTime": "Last Action Taken",
-                    "tinnoIPv4PingServer": "IPv4 Ping Server",
-                    "tinnoConnTestPingInterval": "Ping Test Interval",
-                    "tinnoSHSpeedTestEnable": "Speed Test Status",
-                    "tinnoSHSpeedTestInterval": "Speed Test Interval",
-                    "tinnoSHSpeedTestThreshold": "Speed Test Threshold",
-                    "tinnoSHIsLowThroughput": "Low Throughput Status",
-                    "tinnoLastRebootCounter": "Last Reboot Counter",
-                    "tinnoHistoricalRebootReason": "Historical Reboot Reasons",
-                    "ifInDiscards": "Incoming Discarded Packets",
-                    "ifOutDiscards": "Outgoing Discarded Packets",
-                    "tinnoCmDoc31AccessSshEnable": "SSH Access Status",
-                    "tinnoCmDoc31AccessTechnicianPassword": "Technician Password"
-                }.get(name, name)
+                display_name = DISPLAY_NAMES.get(name, name)
                 error_value = ["Unable to connect to modem"] if name == "tinnoHistoricalRebootReason" else "Unable to connect to modem"
                 data.append({"name": display_name, "value": error_value})
             except Exception as e:
                 logger.error(f"Unexpected error for {name}: {e}")
-                display_name = {
-                    "tinnoSelfhealEnable": "Self-Healing Status",
-                    "tinnoRMInterval": "Monitoring Interval",
-                    "tinnoAvgCPUThreshold": "CPU Threshold",  # Added
-                    "tinnoLastRebootReason": "Last Reboot",
-                    "tinnoLastActionTakenTime": "Last Action Taken",
-                    "tinnoIPv4PingServer": "IPv4 Ping Server",
-                    "tinnoConnTestPingInterval": "Ping Test Interval",
-                    "tinnoSHSpeedTestEnable": "Speed Test Status",
-                    "tinnoSHSpeedTestInterval": "Speed Test Interval",
-                    "tinnoSHSpeedTestThreshold": "Speed Test Threshold",
-                    "tinnoSHIsLowThroughput": "Low Throughput Status",
-                    "tinnoLastRebootCounter": "Last Reboot Counter",
-                    "tinnoHistoricalRebootReason": "Historical Reboot Reasons",
-                    "ifInDiscards": "Incoming Discarded Packets",
-                    "ifOutDiscards": "Outgoing Discarded Packets",
-                    "tinnoCmDoc31AccessSshEnable": "SSH Access Status",
-                    "tinnoCmDoc31AccessTechnicianPassword": "Technician Password"
-                }.get(name, name)
+                display_name = DISPLAY_NAMES.get(name, name)
                 error_value = ["Unable to connect to modem"] if name == "tinnoHistoricalRebootReason" else "Unable to connect to modem"
                 data.append({"name": display_name, "value": error_value})
     except Exception as e:
@@ -461,29 +426,41 @@ def set_qos_direction():
         in_discards = run_snmp_integer(OID_LIST["ifInDiscards"])
         out_discards = run_snmp_integer(OID_LIST["ifOutDiscards"])
 
+        # Drive deviceDQosLiteDirection off of the current discard counters
+        # each time: 1 (sendRecv) while discards are present, back down to 0
+        # once they clear. Previously this only ever set it to 1 and never
+        # turned it back off, so the MTA could be left with QoS-lite "on"
+        # indefinitely while the dashboard's displayed status silently
+        # reverted to "Disabled" the next time discards happened to read 0.
+        discards_present = (in_discards or 0) > 0 or (out_discards or 0) > 0
+        desired_value = "1" if discards_present else "0"
         adjusted = False
-        if (in_discards or 0) > 0 or (out_discards or 0) > 0:
-            try:
-                subprocess.check_output(
-                    ["snmpset", "-v", "2c", "-c", MTA_COMMUNITY, MTA_IP, DEVICE_DQOS_OID, "i", "1"],
-                    universal_newlines=True
-                )
-                logger.info("Set deviceDQosLiteDirection to sendRecv (1) due to discards")
-                adjusted = True
-            except FileNotFoundError:
-                logger.warning("snmpset is not installed or not found in PATH; skipping DQoS adjustment")
-            except subprocess.CalledProcessError as e:
-                logger.warning(f"DQoS adjustment failed but discard counters are still available: {e.output}")
+        try:
+            subprocess.check_output(
+                ["snmpset", "-v", "2c", "-c", MTA_COMMUNITY, MTA_IP, DEVICE_DQOS_OID, "i", desired_value],
+                universal_newlines=True
+            )
+            logger.info(
+                f"Set deviceDQosLiteDirection to {'sendRecv (1)' if discards_present else 'disabled (0)'} "
+                f"({'discards present' if discards_present else 'no discards'})"
+            )
+            adjusted = discards_present
+        except FileNotFoundError:
+            logger.warning("snmpset is not installed or not found in PATH; skipping DQoS adjustment")
+        except subprocess.CalledProcessError as e:
+            logger.warning(f"DQoS adjustment failed but discard counters are still available: {e.output}")
 
-        qos_display = "Disabled"
+        # Read back the device's actual state rather than assuming the set
+        # above took effect, so the display can't drift from reality.
+        qos_display = "Enabled" if discards_present else "Disabled"
         try:
             qos_result = subprocess.check_output(
                 ["snmpwalk", "-v", "2c", "-c", MTA_COMMUNITY, MTA_IP, DEVICE_DQOS_OID],
                 universal_newlines=True
             )
             qos_match = re.search(r"= INTEGER: (\d+)", qos_result)
-            qos_value = qos_match.group(1) if qos_match else "0"
-            qos_display = "Enabled" if adjusted else "Disabled"
+            if qos_match:
+                qos_display = "Disabled" if qos_match.group(1) == "0" else "Enabled"
         except FileNotFoundError:
             logger.warning("snmpwalk is not installed or not found in PATH; DQoS state marked unavailable")
             qos_display = "Unavailable"
@@ -506,23 +483,6 @@ def set_qos_direction():
             "adjusted_due_to_discards": False
         }
 
-def read_log_data(filename):
-    data = []
-    try:
-        with open(filename, 'r') as file:
-            for line in file:
-                try:
-                    timestamp_str, value = line.strip().split(', ')
-                    value = float(value.split()[0])
-                    timestamp = datetime.datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S')
-                    data.append({'x': timestamp.isoformat(), 'y': value})
-                except Exception as e:
-                    logger.error(f"Error parsing line in {filename}: {e}")
-    except Exception as e:
-        logger.error(f"Error reading {filename}: {e}")
-    return data
-
-
 def run_snmp_integer(oid):
     try:
         output = subprocess.check_output(
@@ -540,6 +500,31 @@ def run_snmp_integer(oid):
         return None
     except Exception as e:
         logger.error(f"Unexpected SNMP error for {oid}: {e}")
+        return None
+
+
+def get_snmp_raw_value(oid):
+    """Fetch a single OID's raw value string via snmpwalk (quotes stripped),
+    or None on failure. Used to read one or two values without paying for a
+    full get_snmp_data() walk of every OID in OID_LIST."""
+    try:
+        output = subprocess.check_output(
+            ["snmpwalk", "-v", "2c", "-c", SNMP_COMMUNITY_READ, SNMP_HOST, oid],
+            universal_newlines=True,
+            stderr=subprocess.STDOUT
+        )
+        match = re.search(r"= (.+?): (.+)", output)
+        if not match:
+            return None
+        raw_value = match.group(2).strip()
+        if len(raw_value) >= 2 and raw_value[0] == '"' and raw_value[-1] == '"':
+            raw_value = raw_value[1:-1]
+        return raw_value
+    except FileNotFoundError:
+        logger.error("snmpwalk is not installed or not found in PATH.")
+        return None
+    except subprocess.CalledProcessError as e:
+        logger.error(f"SNMP command failed for {oid}: {e.output}")
         return None
 
 
@@ -628,20 +613,27 @@ def api_usage():
     cpu_data = read_log_data('cpu_usage.log')
     memory_data = read_log_data('free_memory.log')
     throughput_data = read_log_data('throughput.log')
-    snmp_data = get_snmp_data()
-    cpu_threshold = None
-    speedtest_threshold = None
-    for item in snmp_data:
-        if item["name"] == "CPU Threshold":
-            try:
-                cpu_threshold = float(item["value"].split()[0])
-            except:
-                cpu_threshold = 80  # Fallback default
-        if item["name"] == "Speed Test Threshold":
-            try:
-                speedtest_threshold = float(item["value"].split()[0])
-            except:
-                speedtest_threshold = 100  # Fallback default
+
+    # Fetch just the two threshold OIDs directly instead of walking all of
+    # OID_LIST via get_snmp_data() (18 snmpwalk subprocess spawns) just to
+    # string-match two display names out of the result. This endpoint is
+    # polled every 10s by the frontend.
+    cpu_threshold = 80  # Fallback default
+    raw_cpu_threshold = get_snmp_raw_value(OID_LIST["tinnoAvgCPUThreshold"])
+    if raw_cpu_threshold is not None:
+        try:
+            cpu_threshold = float(raw_cpu_threshold)
+        except ValueError:
+            pass
+
+    speedtest_threshold = 100  # Fallback default
+    raw_speedtest_threshold = get_snmp_raw_value(OID_LIST["tinnoSHSpeedTestThreshold"])
+    if raw_speedtest_threshold is not None:
+        try:
+            speedtest_threshold = float(raw_speedtest_threshold)
+        except ValueError:
+            pass
+
     return jsonify({
         'cpu': cpu_data,
         'memory': memory_data,

@@ -603,47 +603,6 @@ body {
 .nav-pills .nav-link {
     border-radius: 0;
 }
-    
-/* Added styles for the new layout */
-body {
-    padding: 0 !important;
-    background: #f8f9fa !important;
-}
-.ps-sidebar-container {
-    width: 250px;
-    background-color: #eaf1ef;
-    min-height: 100vh;
-    border-right: 1px solid #e0e0e0;
-    transition: width 0.3s;
-}
-.sidebar-menu-item {
-    padding: 12px 20px;
-    color: #424242 !important;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    display: flex;
-    align-items: center;
-    text-decoration: none;
-    transition: background-color 0.3s, color 0.3s;
-}
-.sidebar-menu-item:hover, .sidebar-menu-item.active {
-    background-color: #007451;
-    color: #fff !important;
-}
-.sidebar-menu-item i {
-    width: 24px;
-    text-align: center;
-}
-.main-header {
-    background: linear-gradient(to right, #007451, #00a676);
-    color: #fff;
-    padding: 20px 30px;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-}
-.nav-pills .nav-link {
-    border-radius: 0;
-}
     </style>
 </head>
 <body>
@@ -988,67 +947,6 @@ body {
                 sidebar.classList.add('open');
                 overlay.classList.add('show');
             }
-        }
-
-        async function applyConfiguration() {
-            const btn = document.querySelector('#configForm button');
-            const originalText = btn.innerHTML;
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
-            btn.disabled = true;
-
-            const fields = document.querySelectorAll('#configForm input, #configForm select');
-            let successCount = 0;
-            let errorCount = 0;
-            const statusMsg = document.getElementById('configStatusMessage');
-            statusMsg.style.display = 'block';
-            statusMsg.innerHTML = '<span class="text-primary"><i class="fas fa-spinner fa-spin"></i> Applying changes...</span>';
-
-            for (const field of fields) {
-                if (!field.value) continue; // Skip empty fields
-                
-                try {
-                    const response = await fetch('/api/snmpset', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            oid_name: field.id,
-                            value: field.value,
-                            type: field.dataset.type
-                        })
-                    });
-                    const data = await response.json();
-                    if (data.status === 'success') {
-                        successCount++;
-                    } else {
-                        errorCount++;
-                        console.error('Failed to set', field.id, data.error);
-                    }
-                } catch (e) {
-                    errorCount++;
-                    console.error('Error setting', field.id, e);
-                }
-            }
-
-            btn.innerHTML = originalText;
-            btn.disabled = false;
-            
-            if (errorCount === 0 && successCount > 0) {
-                fields.forEach(f => delete f.dataset.dirty); // Clear dirty flags on success
-                statusMsg.innerHTML = `<span class="text-success"><i class="fas fa-check-circle"></i> Successfully applied ${successCount} settings!</span>`;
-            } else if (successCount > 0) {
-                fields.forEach(f => delete f.dataset.dirty); // Clear dirty flags on partial success too
-                statusMsg.innerHTML = `<span class="text-warning"><i class="fas fa-exclamation-triangle"></i> Applied ${successCount} settings, but ${errorCount} failed.</span>`;
-            } else if (errorCount > 0) {
-                statusMsg.innerHTML = `<span class="text-danger"><i class="fas fa-times-circle"></i> Failed to apply settings.</span>`;
-            } else {
-                statusMsg.innerHTML = `<span class="text-info"><i class="fas fa-info-circle"></i> No settings were changed.</span>`;
-            }
-            
-            setTimeout(() => {
-                statusMsg.style.display = 'none';
-            }, 5000);
-            
-            fetchSnmpData(); // Refresh UI values
         }
 
         // Initialize CPU Chart
@@ -1780,9 +1678,6 @@ body {
             statusMsg.classList.add('d-none');
         }, 4000);
     }
-    
-    // Removing old applyConfiguration if it conflicts
-    window.applyConfiguration = undefined;
 </script>
 </body>
 </html>

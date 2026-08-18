@@ -1,5 +1,6 @@
 services:
   selfheal-dashboard:
+    image: selfheal-dashboard:latest
     build: .
     container_name: selfheal-dashboard
     ports:
@@ -10,3 +11,4 @@ services:
       MTA_COMMUNITY: private
       MTA_IP: 192.168.246.73
     restart: unless-stopped
+    
