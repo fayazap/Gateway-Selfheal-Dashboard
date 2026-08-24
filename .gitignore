@@ -18,3 +18,9 @@ build/
 
 # Docker
 *.pid
+
+#runtime data
+backend/cpu_stats.json
+backend/memory_stats.json
+backend/temp_stats.json
+backend/containers.json

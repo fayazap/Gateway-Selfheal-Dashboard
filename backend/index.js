@@ -15,6 +15,7 @@ const {
   getSelfhealParams,
   getAnomalyDetectionParams,
   getNetworkQuality,
+  getDeviceSummary,
   coerceWriteValue,
 } = require('./snmp');
 
@@ -270,18 +271,12 @@ async function archiveAnomalyEvents(liveEvents) {
 // API: Fetch device summary
 app.get('/api/summary', async (req, res) => {
   try {
-    const hostname = await sshExec('dmcli eRT getv Device.DeviceInfo.DeviceCategory 2>/dev/null | awk \'/value:/{sub(/.*value:[ \\t]*/,""); print}\' || cat /proc/sys/kernel/hostname || dmcli eRT getv Device.DeviceInfo.X_COMCAST-COM_CM_MAC 2>/dev/null | awk \'/value:/{print $NF}\'');
-    const uptime = await sshExec("uptime | awk -F'up ' '{print $2}' | awk -F',' '{print $1}'");
-    const cpuUsage = await sshExec('awk \'/^cpu / {usage=($2+$4)*100/($2+$4+$5); printf "%.1f%%\\n", usage}\' /proc/stat');
-    const memoryUsage = await sshExec("free 2>/dev/null | awk '/Mem:/ {print int($3*100/$2) \"%\"}' | grep -v '^$' || " + "awk '/MemTotal/{t=$2} /MemAvailable/{a=$2} END{print int((t-a)*100/t) \"%\"}' /proc/meminfo");
-    const ipAddress = await sshExec("/sbin/ip route get 8.8.8.8 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i==\"src\") print $(i+1); exit}' || " + "/sbin/ip -4 addr 2>/dev/null | awk '/inet / && !/127.0.0.1/{print $2}' | cut -d/ -f1 | head -n1");
-    const macAddress = await sshExec("iface=$(/sbin/ip route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i==\"dev\") print $(i+1); exit}'); " + "[ -n \"$iface\" ] && cat /sys/class/net/$iface/address 2>/dev/null || " + "/sbin/ip link 2>/dev/null | awk '/ether/{print $2; exit}'");
-    const defaultGateway = await sshExec('/sbin/ip route show default | awk \'{print $3; exit}\'');
-    const dnsServers = await sshExec('dmcli eRT getv Device.DNS.Client.Server.1.DNSServer 2>/dev/null | awk \'/value:/{print $NF}\' || grep nameserver /etc/resolv.conf /tmp/resolv.conf 2>/dev/null | awk \'{print $2}\' | sort -u | tr \'\\n\' \',\' | sed \'s/,$//\'');
-    const firmwareVersion = await sshExec("awk -F= '/^VERSION=/{gsub(/[\" ]/,\"\",$2); print $2; exit}' /etc/rdk-image-version 2>/dev/null || " + "awk -F= '/^BRANCH=/{gsub(/[\" ]/,\"\",$2); print $2; exit}' /etc/rdk-image-version 2>/dev/null || " + "dmcli eRT getv Device.DeviceInfo.SoftwareVersion 2>/dev/null | awk '/value:/{print $NF}' || " + "uname -r");
-    const deviceModelRaw = await sshExec('cat /proc/device-tree/model');
-    const deviceModel = await sshExec('dmcli eRT getv Device.DeviceInfo.ModelName 2>/dev/null | awk \'/value:/{print $NF}\' || cat /proc/device-tree/model 2>/dev/null || echo "B521FG"');
-    const manufacturer = await sshExec('dmcli eRT getv Device.DeviceInfo.Manufacturer 2>/dev/null | awk \'/value:/{print $NF}\' || echo "Tinno"');
+    const host = sshConfig.host;
+    const {
+      hostname, uptime, cpuUsage, memoryUsage, ipAddress, macAddress,
+      defaultGateway, dnsServers, firmwareVersion, deviceModel, manufacturer,
+    } = await getDeviceSummary(host);
+
     const cpuStats = await loadStats('cpu_stats.json');
     const newCpuValue = parseFloat(cpuUsage) || 0;
     cpuStats.push({ time: new Date().toISOString(), value: newCpuValue });
@@ -315,7 +310,7 @@ app.get('/api/summary', async (req, res) => {
       manufacturer: manufacturer || 'N/A',
     });
   } catch (err) {
-    res.status(500).json({ error: `SSH error: ${err.message}` });
+    res.status(500).json({ error: `Summary error: ${err.message}` });
   }
 });
 

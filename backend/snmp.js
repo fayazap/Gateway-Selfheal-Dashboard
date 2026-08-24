@@ -91,6 +91,22 @@ const NETWORK_QUALITY_OIDS = {
 const DEVICE_DQOS_OID = '1.3.6.1.4.1.17318.1.25.50.30.100.0';
 const DQOS_DIRECTION_MAPPING = { 0: 'Disabled', 1: 'Send and Receive', 2: 'Send Only' };
 
+// Device summary OIDs — replace the old SSH/dmcli lookups on /api/summary.
+// sysDescr/sysUpTime are standard MIB-II scalars (already .0); the tinno live-stat
+// OIDs and ifPhysAddress are table columns, so — like NETWORK_QUALITY_OIDS above —
+// the ".2" (cable/DOCSIS interface index) is hardcoded here rather than resolved.
+const SUMMARY_OIDS = {
+  sysDescr: '1.3.6.1.2.1.1.1.0',
+  sysUpTime: '1.3.6.1.2.1.1.3.0',
+  liveCpuStat: '1.3.6.1.4.1.62596.1.1.1.51.2',
+  liveMemoryStat: '1.3.6.1.4.1.62596.1.1.1.52.2',
+  ifPhysAddress: '1.3.6.1.2.1.2.2.1.6.2',
+};
+
+// Total device RAM in KB, from `free` on the gateway (total column). Used to derive
+// Memory Usage % from tinnoLiveMemoryStat (free KB) as (total - free) / total.
+const MEM_TOTAL_KB = parseInt(process.env.MEM_TOTAL_KB, 10) || 1910720;
+
 // SNMP type used when writing a parameter via snmpset.
 const PARAM_TYPES = {
   tinnoSelfhealEnable: snmp.ObjectType.Integer,
@@ -238,13 +254,17 @@ function withSession(host, fn, community = SNMP_COMMUNITY) {
   return fn(session).finally(() => session.close());
 }
 
-function snmpGet(host, oid, community) {
+// `raw: true` skips toJsValue()'s Buffer -> string conversion and resolves with the
+// varbind's value untouched. Needed for binary OctetStrings like PhysAddress — the
+// default .toString() is lossy (UTF-8) and mangles raw MAC bytes (e.g. 0x00) before
+// any caller gets a chance to format them.
+function snmpGet(host, oid, community, { raw = false } = {}) {
   return withSession(host, (session) => new Promise((resolve, reject) => {
     session.get([oid], (error, varbinds) => {
       if (error) return reject(error);
       const vb = varbinds[0];
       if (snmp.isVarbindError(vb)) return reject(new Error(snmp.varbindError(vb)));
-      resolve(toJsValue(vb));
+      resolve(raw ? vb.value : toJsValue(vb));
     });
   }), community);
 }
@@ -394,6 +414,104 @@ async function getNetworkQuality(host) {
   };
 }
 
+// Parses sysDescr.0, e.g.:
+//   "DOCSIS EMTA <<HW_REV: 160.0; VENDOR: Tinno, Inc.; BOOTR: NONE; SW_REV: 8.6.0.0.114-1.0.1; MODEL: B521DE>>"
+// The text before "<<" is the device name; the "<<...>>" block is a "; "-separated
+// list of "KEY: value" pairs. Any field the device omits falls back to '-'.
+function parseSysDescr(raw) {
+  const value = Buffer.isBuffer(raw) ? raw.toString().trim() : String(raw || '').trim();
+  const bracketMatch = value.match(/<<(.*)>>/);
+  const deviceName = value.split('<<')[0].trim() || EMPTY_PLACEHOLDER;
+
+  const fields = {};
+  if (bracketMatch) {
+    bracketMatch[1].split(';').forEach((part) => {
+      const sep = part.indexOf(':');
+      if (sep === -1) return;
+      fields[part.slice(0, sep).trim()] = part.slice(sep + 1).trim();
+    });
+  }
+
+  return {
+    deviceName,
+    manufacturer: fields.VENDOR || EMPTY_PLACEHOLDER,
+    firmwareVersion: fields.SW_REV || EMPTY_PLACEHOLDER,
+    deviceModel: fields.MODEL || EMPTY_PLACEHOLDER,
+  };
+}
+
+// sysUpTimeInstance is in timeticks (hundredths of a second). Formats it as
+// "[Nd ]HH:MM:SS" to match the DD:HH:MM:SS style shown in the SNMP walk sample.
+function formatUptimeTicks(raw) {
+  const ticks = Number(raw);
+  if (!Number.isFinite(ticks) || ticks < 0) return EMPTY_PLACEHOLDER;
+
+  const totalSeconds = Math.floor(ticks / 100);
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const clock = [hours, minutes, seconds].map((n) => String(n).padStart(2, '0')).join(':');
+  return days > 0 ? `${days}d ${clock}` : clock;
+}
+
+// ifPhysAddress comes back as a raw PhysAddress OctetString (Buffer) — format it as
+// the usual colon-separated hex pairs (e.g. "2C:00:2A:10:B8:74").
+function formatMacAddress(raw) {
+  if (Buffer.isBuffer(raw)) {
+    return [...raw].map((b) => b.toString(16).padStart(2, '0').toUpperCase()).join(':');
+  }
+  const value = String(raw || '').trim();
+  return value || EMPTY_PLACEHOLDER;
+}
+
+// No gateway/DNS OIDs are available over SNMP — the gateway address is derived from
+// the device's own IP (assumes a /24, i.e. "<network>.1"), which is the convention
+// this device family uses. DNS has no live source at all, so it's hardcoded by the caller.
+function deriveGateway(ip) {
+  const octets = typeof ip === 'string' ? ip.split('.') : [];
+  if (octets.length !== 4) return EMPTY_PLACEHOLDER;
+  return `${octets[0]}.${octets[1]}.${octets[2]}.1`;
+}
+
+// Fetches the device summary fields shown on /api/summary's info cards, replacing the
+// old SSH/dmcli lookups. `host` is the gateway IP set at login (sshConfig.host) — it
+// doubles as both the SNMP target and the displayed IP Address (no separate SNMP source
+// for the device's own IP exists). Gateway is derived from it; DNS has no live source
+// and is hardcoded to 8.8.8.8.
+async function getDeviceSummary(host) {
+  const [sysDescrRaw, sysUpTimeRaw, cpuRaw, memFreeRaw, macRaw] = await Promise.all([
+    snmpGet(host, SUMMARY_OIDS.sysDescr).catch(() => null),
+    snmpGet(host, SUMMARY_OIDS.sysUpTime).catch(() => null),
+    snmpGet(host, SUMMARY_OIDS.liveCpuStat).catch(() => null),
+    snmpGet(host, SUMMARY_OIDS.liveMemoryStat).catch(() => null),
+    snmpGet(host, SUMMARY_OIDS.ifPhysAddress, undefined, { raw: true }).catch(() => null),
+  ]);
+
+  const { deviceName, manufacturer, firmwareVersion, deviceModel } = parseSysDescr(sysDescrRaw);
+
+  const cpuUsage = cpuRaw === null || cpuRaw === undefined ? EMPTY_PLACEHOLDER : `${Number(cpuRaw)}%`;
+
+  const memFree = Number(memFreeRaw);
+  const memoryUsage = memFreeRaw === null || memFreeRaw === undefined || Number.isNaN(memFree)
+    ? EMPTY_PLACEHOLDER
+    : `${Math.round(((MEM_TOTAL_KB - memFree) / MEM_TOTAL_KB) * 100)}%`;
+
+  return {
+    hostname: deviceName,
+    deviceModel,
+    manufacturer,
+    firmwareVersion,
+    uptime: sysUpTimeRaw === null || sysUpTimeRaw === undefined ? EMPTY_PLACEHOLDER : formatUptimeTicks(sysUpTimeRaw),
+    cpuUsage,
+    memoryUsage,
+    macAddress: macRaw === null || macRaw === undefined ? EMPTY_PLACEHOLDER : formatMacAddress(macRaw),
+    ipAddress: host,
+    defaultGateway: deriveGateway(host),
+    dnsServers: '8.8.8.8',
+  };
+}
+
 // Reverses a mapped display label (e.g. "Enabled") back to its device-native code (e.g. 1),
 // and coerces numeric-typed values to numbers. Used so a stale/human display value making
 // its way into a configure request doesn't silently become NaN on the wire.
@@ -423,5 +541,6 @@ module.exports = {
   getSelfhealParams,
   getAnomalyDetectionParams,
   getNetworkQuality,
+  getDeviceSummary,
   coerceWriteValue,
 };
