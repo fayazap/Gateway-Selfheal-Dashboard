@@ -178,7 +178,7 @@ function App() {
 
         {/* Footer */}
         <footer className="p-4 text-center text-sm text-gray-600 bg-white border-t border-gray-200">
-          &copy; {new Date().getFullYear()} © 2026 TINNO DOCSIS eMTA. All rights reserved.
+          &copy; {new Date().getFullYear()} TINNO GPON Gateway. All rights reserved.
         </footer>
       </div>
 
