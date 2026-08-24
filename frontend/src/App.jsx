@@ -5,9 +5,10 @@ import { Tooltip } from 'react-tooltip';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import 'react-tooltip/dist/react-tooltip.css';
 import { Sidebar, Menu, MenuItem } from 'react-pro-sidebar';
-import { Home, Settings, Info, BarChart, Server, LogOut } from 'lucide-react';
+import { Home, Settings, Info, BarChart, Server, LogOut, ShieldAlert } from 'lucide-react';
 import SummaryPage from './pages/SummaryPage.jsx';
 import DisplayConfigurePage from './pages/DisplayConfigurePage.jsx';
+import AnomalyDetectionPage from './pages/AnomalyDetectionPage.jsx';
 import AboutPage from './pages/AboutPage.jsx';
 import LCMPage from './pages/LCMPage.jsx';
 import LoginPage from './pages/LoginPage.jsx';
@@ -97,6 +98,14 @@ function App() {
             Display & Configure
           </MenuItem>
           <MenuItem
+            component={<NavLink to="/anomaly-detection" />}
+            icon={<ShieldAlert size={20} />}
+            data-tooltip-id="tooltip-anomaly"
+            data-tooltip-content="AI process monitor: view and configure anomaly detection"
+          >
+            Anomaly Detection
+          </MenuItem>
+          <MenuItem
             component={<NavLink to="/about" />}
             icon={<Info size={20} />}
             data-tooltip-id="tooltip-about"
@@ -158,6 +167,7 @@ function App() {
               <Routes>
                 <Route path="/" element={<SummaryPage />} />
                 <Route path="/display-configure" element={<DisplayConfigurePage />} />
+                <Route path="/anomaly-detection" element={<AnomalyDetectionPage />} />
                 <Route path="/about" element={<AboutPage />} />
                 <Route path="/lcm" element={<LCMPage />} />
                 <Route path="/login" element={<LoginPage setIsLoggedIn={setIsLoggedIn} />} />
@@ -175,6 +185,7 @@ function App() {
       {/* Tooltips */}
       <Tooltip id="tooltip-summary" place="right" />
       <Tooltip id="tooltip-display" place="right" />
+      <Tooltip id="tooltip-anomaly" place="right" />
       <Tooltip id="tooltip-about" place="right" />
       <Tooltip id="tooltip-status" place="left" />
       <Tooltip id="tooltip-lcm" place="right" />

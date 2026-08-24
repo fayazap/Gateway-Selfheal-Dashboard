@@ -8,5 +8,15 @@
     "autostart": true,
     "uuid": "1785325995805",
     "addedAt": "2026-07-29T11:53:15.805Z"
+  },
+  {
+    "url": "docker://registry.gitlab.com/harisowndharya/aiservices:v25.0",
+    "name": "AIServices",
+    "description": "Anomaly detection",
+    "vendor": "Hari",
+    "version": "25",
+    "autostart": false,
+    "uuid": "1787057199359",
+    "addedAt": "2026-08-18T12:46:39.359Z"
   }
 ]

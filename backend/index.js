@@ -13,9 +13,76 @@ const {
   formatValue,
   parseHistoricalReboots,
   getSelfhealParams,
+  getAnomalyDetectionParams,
   getNetworkQuality,
   coerceWriteValue,
 } = require('./snmp');
+
+const ANOMALY_REPORT_PATH = '/log/anomaly_logs/data/outputs/anomalies.csv';
+const ANOMALY_REPORT_TAIL_LINES = 30; // plenty to cover 5 displayed rows plus some margin
+
+// Fixed column order test.py's own writer uses -- confirmed directly against
+// the real device and the real test.py source (anomalies_only.to_csv(...)).
+// This file is written EXCLUSIVELY by the anomaly detection agent itself
+// (test.py filters to anomaly==1 rows before writing), with no sharing with
+// self-heal and no SNMP size cap -- unlike reboot_log.txt/
+// tinnoHistoricalRebootReason, which both self-heal and remediate.py write
+// to, and which is capped at 1024 bytes over SNMP. This is the dedicated
+// source for "what did the detector itself observe", not "what did
+// corrective action do about it" (that's still only in reboot_log.txt).
+const ANOMALY_CSV_COLUMNS = [
+  'timestamp', 'iteration', 'process_name', 'cpu_usage_pct', 'memory_usage_pct',
+  'anomaly', 'state_cpu', 'state_mem',
+  'cpu_avg', 'cpu_min', 'cpu_max', 'mem_avg', 'mem_min', 'mem_max',
+];
+
+// Minimal RFC4180-ish CSV line parser -- handles quoted fields containing
+// commas (pandas quotes these; e.g. a captured "ps -eo pid,cmd,%cpu,%mem --"
+// command line, seen for real on this device) and doubled-quote escaping.
+function parseCsvLine(line) {
+  const fields = [];
+  let cur = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (line[i + 1] === '"') { cur += '"'; i++; }
+        else { inQuotes = false; }
+      } else {
+        cur += c;
+      }
+    } else {
+      if (c === '"') inQuotes = true;
+      else if (c === ',') { fields.push(cur); cur = ''; }
+      else cur += c;
+    }
+  }
+  fields.push(cur);
+  return fields;
+}
+
+function parseAnomaliesCsv(output) {
+  if (!output) return [];
+  return output
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith('timestamp,')) // skip header if tail happened to include it
+    .map((line) => {
+      const fields = parseCsvLine(line);
+      if (fields.length !== ANOMALY_CSV_COLUMNS.length) return null; // skip any malformed/partial line
+      const row = {};
+      ANOMALY_CSV_COLUMNS.forEach((col, i) => { row[col] = fields[i]; });
+      return row;
+    })
+    .filter(Boolean)
+    .reverse(); // file is append-only oldest-first; newest-first for display
+}
+
+async function getRecentDetections(host) {
+  const output = await sshExec(`tail -n ${ANOMALY_REPORT_TAIL_LINES} ${ANOMALY_REPORT_PATH} 2>/dev/null`);
+  return parseAnomaliesCsv(output);
+}
 
 const app = express();
 const port = 5000;
@@ -25,7 +92,7 @@ app.use(bodyParser.json());
 
 // SSH config using environment variables
 const sshConfig = {
-  host: process.env.SSH_HOST || '192.168.246.76',
+  host: '192.168.246.76',
   port: 22,
   username: process.env.SSH_USERNAME || 'root',
   password: process.env.SSH_PASSWORD || 'Hari@123'
@@ -82,6 +149,38 @@ function parseDmcliOutput(output) {
   return result;
 }
 
+// Parses anomaly-detection-start.sh's `status` output into a flat object.
+// Real output looks like:
+//   [anomaly-detection] Daemon      : running (PID: 1238)
+//   [anomaly-detection] Python agent: NOT running
+//   [anomaly-detection] Socket      : present (/var/run/anomaly_detection.sock)
+// Keyed on the labeled prefix and the presence of "running"/"NOT running"/
+// "present"/"MISSING", not exact whitespace, so minor script formatting
+// changes (spacing, wording) don't silently break this.
+function parseAnomalyServiceStatus(output) {
+  const lines = String(output || '').split('\n');
+  const status = {
+    daemonRunning: false, daemonPid: null,
+    agentRunning: false, agentPid: null,
+    socketPresent: false,
+  };
+
+  for (const line of lines) {
+    if (/Daemon\s*:/.test(line)) {
+      status.daemonRunning = /running/i.test(line) && !/NOT running/i.test(line);
+      const pidMatch = line.match(/PID:\s*(\d+)/);
+      if (pidMatch) status.daemonPid = pidMatch[1];
+    } else if (/Python agent\s*:/.test(line)) {
+      status.agentRunning = /running/i.test(line) && !/NOT running/i.test(line);
+      const pidMatch = line.match(/PID:\s*(\d+)/);
+      if (pidMatch) status.agentPid = pidMatch[1];
+    } else if (/Socket\s*:/.test(line)) {
+      status.socketPresent = /present/i.test(line);
+    }
+  }
+  return status;
+}
+
 // Load data from file or initialize
 async function loadData(filePath) {
   try {
@@ -120,6 +219,52 @@ async function saveStats(filePath, stats) {
   } catch (err) {
     console.error(`Failed to save ${filePath}: ${err.message}`);
   }
+}
+
+const ANOMALY_EVENTS_FILE = 'anomaly_events.json';
+const ANOMALY_EVENTS_ARCHIVE_CAP = 200; // generous vs. the ~9 entries that fit in the device's 1024-byte SNMP window
+
+// tinnoHistoricalRebootReason is served through a fixed-size (1024 byte)
+// SNMP buffer on the device, read oldest-line-first -- once enough new
+// ANOMALY_KILL entries accumulate, the OLDEST bytes get truncated off
+// before the device ever sends them, and since new entries are appended
+// at the end, it's always the newest ones that get pushed past the
+// truncation point and lost from the live SNMP response entirely. That's
+// a device-side limit no amount of frontend/backend parsing can recover.
+//
+// Instead: every time we successfully see an event (i.e. it was still
+// within the un-truncated window at poll time), archive it locally,
+// deduped by a key unique to that specific detection. Once archived, an
+// event survives here even after later truncation pushes it out of the
+// live SNMP response -- this can't recover events that were ALREADY
+// truncated before this archiving started, but it permanently closes the
+// gap going forward, without touching device firmware at all.
+function anomalyEventKey(ev) {
+  return `${ev.time}|${ev.pid}|${ev.cmd}|${ev.result}`;
+}
+
+async function archiveAnomalyEvents(liveEvents) {
+  const archive = await loadStats(ANOMALY_EVENTS_FILE);
+  const seen = new Set(archive.map(anomalyEventKey));
+
+  let added = false;
+  for (const ev of liveEvents) {
+    const key = anomalyEventKey(ev);
+    if (!seen.has(key)) {
+      archive.push(ev);
+      seen.add(key);
+      added = true;
+    }
+  }
+
+  if (!added) return archive; // avoid an unnecessary disk write when nothing changed
+
+  // Newest first, capped -- matches the ordering/shape parseAnomalyEvents
+  // already returns, so nothing downstream needs to know this merge happened.
+  archive.sort((a, b) => (a.time < b.time ? 1 : a.time > b.time ? -1 : 0));
+  const trimmed = archive.slice(0, ANOMALY_EVENTS_ARCHIVE_CAP);
+  await saveStats(ANOMALY_EVENTS_FILE, trimmed);
+  return trimmed;
 }
 
 // API: Fetch device summary
@@ -199,6 +344,80 @@ app.get('/api/selfheal', async (req, res) => {
     });
   } catch (err) {
     console.error('GET /api/selfheal failed:', err);
+    res.status(500).json({ error: `SNMP error: ${err.message}` });
+  }
+});
+
+// API: Fetch Anomaly Detection status, config, and recent events
+app.get('/api/anomaly-detection', async (req, res) => {
+  try {
+    const host = sshConfig.host;
+
+    // SNMP data (config/telemetry) and service status (daemon/agent/socket
+    // liveness) come from two entirely different sources -- SNMP has no
+    // OID for "is the Python agent process actually alive right now",
+    // that's process/PID state only visible via the device shell. Fetch
+    // both in parallel; a failure in one shouldn't block the other.
+    const [adResult, serviceStatusResult, detectionsResult] = await Promise.allSettled([
+      getAnomalyDetectionParams(host),
+      sshExec('/usr/sbin/anomaly-detection-start.sh status').then(parseAnomalyServiceStatus),
+      getRecentDetections(host),
+    ]);
+
+    if (adResult.status !== 'fulfilled') throw adResult.reason;
+    const { params, raw, events: liveEvents } = adResult.value;
+
+    // Archive whatever's currently visible over SNMP, then serve the
+    // archive (newest first) instead of the raw live events -- this is
+    // what protects the dashboard from the device's 1024-byte
+    // tinnoHistoricalRebootReason truncation silently dropping newly
+    // detected anomalies once the log grows past that size.
+    const events = await archiveAnomalyEvents(liveEvents);
+
+    const serviceStatus = serviceStatusResult.status === 'fulfilled'
+      ? serviceStatusResult.value
+      : { daemonRunning: null, agentRunning: null, socketPresent: null, error: String(serviceStatusResult.reason?.message || serviceStatusResult.reason) };
+
+    // Dedicated, agent-only detection history (anomalies.csv via SSH) --
+    // separate from `events` (reboot_log.txt/SNMP), which is still fetched
+    // above and used only for the Current Anomaly panel's kill/log status,
+    // since that information genuinely only exists in remediate.py's log.
+    const detections = detectionsResult.status === 'fulfilled' ? detectionsResult.value : [];
+    if (detectionsResult.status !== 'fulfilled') {
+      console.error('Failed to fetch recent detections:', detectionsResult.reason);
+    }
+
+    const anomalyCount = parseInt(params.tinnoADAnomalyCount, 10) || 0;
+    const cpuThreshold = parseInt(params.tinnoADNewProcCPUThreshold, 10) || 0;
+    const memThreshold = parseInt(params.tinnoADNewProcMemThreshold, 10) || 0;
+
+    res.json({
+      params,
+      raw,
+      events,
+      detections,
+      serviceStatus,
+      enabled: raw.tinnoADEnable === 1 || raw.tinnoADEnable === '1',
+      correctiveActionEnabled: raw.tinnoADCorrectiveActionEnable === 1 || raw.tinnoADCorrectiveActionEnable === '1',
+      anomalyCount,
+      cpuThreshold,
+      memThreshold,
+      currentTarget: {
+        cmd: params.tinnoADProcessCMD,
+        pid: params.tinnoADProcessID,
+        timestamp: params.tinnoADProcessTimestamp,
+        cpuUsage: params.tinnoADCPUUsage,
+        memUsage: params.tinnoADMemUsage,
+        cpuAvg: params.tinnoADCPUAvg,
+        cpuMin: params.tinnoADCPUMin,
+        cpuMax: params.tinnoADCPUMax,
+        memAvg: params.tinnoADMemAvg,
+        memMin: params.tinnoADMemMin,
+        memMax: params.tinnoADMemMax,
+      },
+    });
+  } catch (err) {
+    console.error('GET /api/anomaly-detection failed:', err);
     res.status(500).json({ error: `SNMP error: ${err.message}` });
   }
 });
