@@ -63,7 +63,11 @@ OID_LIST = {
     "ifInDiscards": "1.3.6.1.2.1.2.2.1.13.2",
     "ifOutDiscards": "1.3.6.1.2.1.2.2.1.19.2",
     "tinnoCmDoc31AccessSshEnable": "1.3.6.1.4.1.62596.1.1.1.12.2",
-    "tinnoCmDoc31AccessTechnicianPassword": "1.3.6.1.4.1.62596.1.1.1.4"
+    "tinnoCmDoc31AccessTechnicianPassword": "1.3.6.1.4.1.62596.1.1.1.4",
+    "tinnoSpeedtestUrl": "1.3.6.1.4.1.62596.1.1.1.16.2",
+    "tinnoSpeedtestServerPort": "1.3.6.1.4.1.62596.1.1.1.17.2",
+    "tinnoSHConnTestEnable": "1.3.6.1.4.1.62596.1.1.1.35.2",
+    "tinnoSHtftpserver": "1.3.6.1.4.1.62596.1.1.1.53.2"
 }
 
 VALUE_MAPPINGS = {
@@ -88,7 +92,8 @@ VALUE_MAPPINGS = {
         "1": "Send and Receive",
         "2": "Send Only"
     },
-    "tinnoCmDoc31AccessSshEnable": {"0": "Disabled", "1": "Enabled"}
+    "tinnoCmDoc31AccessSshEnable": {"0": "Disabled", "1": "Enabled"},
+    "tinnoSHConnTestEnable": {"0": "Disabled", "1": "Enabled"}
 }
 
 # Human-readable labels for OID_LIST entries, used by get_snmp_data(). Kept
@@ -112,7 +117,11 @@ DISPLAY_NAMES = {
     "ifInDiscards": "Incoming Discarded Packets",
     "ifOutDiscards": "Outgoing Discarded Packets",
     "tinnoCmDoc31AccessSshEnable": "SSH Access Enable",
-    "tinnoCmDoc31AccessTechnicianPassword": "Technician Password"
+    "tinnoCmDoc31AccessTechnicianPassword": "Technician Password",
+    "tinnoSpeedtestUrl": "Speed Test Server",
+    "tinnoSpeedtestServerPort": "Speed Test Server Port",
+    "tinnoSHConnTestEnable": "Connectivity Test Enable",
+    "tinnoSHtftpserver": "TFTP Log Server"
 }
 
 # SNMP Settings

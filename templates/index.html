@@ -850,6 +850,19 @@ body {
                                 </div>
 
                                 <div class="row mb-4 align-items-center">
+                                    <div class="col-md-4 text-secondary fw-bold">Connectivity Test Enable</div>
+                                    <div class="col-md-6">
+                                        <select class="form-select border-secondary-subtle" id="tinnoSHConnTestEnable" data-type="i">
+                                            <option value="1">Enabled</option>
+                                            <option value="0">Disabled</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-2 mt-2 mt-md-0">
+                                        <button type="button" class="btn w-100 text-white" style="background-color: #198754;" onclick="applySingleConfig('tinnoSHConnTestEnable', 'Connectivity Test Enable', event)">Update</button>
+                                    </div>
+                                </div>
+
+                                <div class="row mb-4 align-items-center">
                                     <div class="col-md-4 text-secondary fw-bold">Conn Test Ping Interval (mins)</div>
                                     <div class="col-md-6">
                                         <input type="number" class="form-control border-secondary-subtle" id="tinnoConnTestPingInterval" data-type="i">
@@ -899,6 +912,36 @@ body {
                                     </div>
                                     <div class="col-md-2 mt-2 mt-md-0">
                                         <button type="button" class="btn w-100 text-white" style="background-color: #198754;" onclick="applySingleConfig('tinnoSHSpeedTestThreshold', 'Speed Test Threshold', event)">Update</button>
+                                    </div>
+                                </div>
+
+                                <div class="row mb-4 align-items-center">
+                                    <div class="col-md-4 text-secondary fw-bold">Speed Test Server</div>
+                                    <div class="col-md-6">
+                                        <input type="text" class="form-control border-secondary-subtle" id="tinnoSpeedtestUrl" data-type="s" placeholder="e.g. 192.168.1.10">
+                                    </div>
+                                    <div class="col-md-2 mt-2 mt-md-0">
+                                        <button type="button" class="btn w-100 text-white" style="background-color: #198754;" onclick="applySingleConfig('tinnoSpeedtestUrl', 'Speed Test Server', event)">Update</button>
+                                    </div>
+                                </div>
+
+                                <div class="row mb-4 align-items-center">
+                                    <div class="col-md-4 text-secondary fw-bold">Speed Test Server Port</div>
+                                    <div class="col-md-6">
+                                        <input type="number" class="form-control border-secondary-subtle" id="tinnoSpeedtestServerPort" data-type="i" min="5001" max="65535">
+                                    </div>
+                                    <div class="col-md-2 mt-2 mt-md-0">
+                                        <button type="button" class="btn w-100 text-white" style="background-color: #198754;" onclick="applySingleConfig('tinnoSpeedtestServerPort', 'Speed Test Server Port', event)">Update</button>
+                                    </div>
+                                </div>
+
+                                <div class="row mb-4 align-items-center">
+                                    <div class="col-md-4 text-secondary fw-bold">TFTP Log Server</div>
+                                    <div class="col-md-6">
+                                        <input type="text" class="form-control border-secondary-subtle" id="tinnoSHtftpserver" data-type="s" placeholder="e.g. 192.168.1.20 (empty to disable)">
+                                    </div>
+                                    <div class="col-md-2 mt-2 mt-md-0">
+                                        <button type="button" class="btn w-100 text-white" style="background-color: #198754;" onclick="applySingleConfig('tinnoSHtftpserver', 'TFTP Log Server', event)">Update</button>
                                     </div>
                                 </div>
 
@@ -1637,7 +1680,9 @@ body {
         const btn = event.currentTarget;
         const originalHtml = btn.innerHTML;
         const field = document.getElementById(fieldId);
-        if (!field || !field.value) return;
+        // tinnoSHtftpserver accepts an empty string to disable TFTP log upload,
+        // so only that field is allowed through the "no value" guard.
+        if (!field || (!field.value && fieldId !== 'tinnoSHtftpserver')) return;
         
         btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
         btn.disabled = true;
