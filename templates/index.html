@@ -1391,6 +1391,43 @@ body {
             }
         });
 
+        // Turn a tinnoLogUploaderStatus string ("<last-run-time> - <RESULT>
+        // [<detail>]") into a { timestamp, message } self-healing event, or
+        // null when no diagnostic-log upload has been attempted yet.
+        function parseLogUploadEvent(status) {
+            if (!status || typeof status !== 'string') return null;
+            const m = status.match(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\s*-\s*([A-Z_]+)\s*(?:\[(.*?)\])?\s*$/);
+            if (!m) return null;
+            const timestamp = m[1];
+            const result = m[2];
+            const detail = (m[3] || '').trim();
+            let message;
+            switch (result) {
+                case 'SUCCESS':
+                    message = `On ${timestamp}, diagnostic logs were successfully uploaded to the TFTP server.`;
+                    break;
+                case 'PARTIAL':
+                    message = `On ${timestamp}, a diagnostic log upload only partially completed.`;
+                    break;
+                case 'SERVER_UNREACHABLE':
+                    message = `On ${timestamp}, a diagnostic log upload failed because the TFTP server was unreachable.`;
+                    break;
+                case 'RETAINED_NO_SERVER':
+                    message = `On ${timestamp}, diagnostic logs were retained locally because no TFTP server is configured.`;
+                    break;
+                case 'NO_TFTP_CLIENT':
+                    message = `On ${timestamp}, a diagnostic log upload failed because no TFTP client is available.`;
+                    break;
+                case 'DISABLED':
+                    message = `On ${timestamp}, diagnostic log upload is disabled.`;
+                    break;
+                default:
+                    message = `On ${timestamp}, a diagnostic log upload finished with result ${result}.`;
+            }
+            if (detail) message += ` (${detail})`;
+            return { timestamp, message };
+        }
+
         // Fetch SNMP data and update summary
         async function fetchSnmpData() {
             try {
@@ -1465,28 +1502,41 @@ body {
 
                 // Process self-healing events
                 const historicalEvents = data.find(d => d.name === 'Historical Reboot Reasons')?.value || ['Unable to connect to modem'];
+                const logUploadStatus = data.find(d => d.name === 'Diagnostic Log Upload')?.value || '';
                 if (Array.isArray(historicalEvents) && historicalEvents.length > 0 && historicalEvents[0] !== 'Unable to connect to modem') {
+                    // Build one timestamp-sorted timeline of self-healing events:
+                    // the reboot events from tinnoHistoricalRebootReason plus the
+                    // most recent diagnostic-log upload from tinnoLogUploaderStatus.
+                    const events = historicalEvents.map(event => {
+                        let message = '';
+                        const parts = event.split(' - ');
+                        const timestamp = parts[0] || '';
+                        const reason = parts[1] || '';
+
+                        if (!reason) {
+                            message = `On ${timestamp}, a reboot was triggered.`;
+                        } else if (reason === 'MEM_THRESHOLD') {
+                            message = `On ${timestamp}, memory threshold was exceeded, triggering a reboot.`;
+                        } else if (reason === 'PING_FAILED') {
+                            message = `On ${timestamp}, a ping failure was detected, triggering a reboot.`;
+                        } else if (reason.includes && reason.includes('SPEED_TEST')) {
+                            message = `On ${timestamp}, a speed test was conducted with result: ${reason.split(' - ')[1] || 'unknown'}.`;
+                        } else {
+                            message = `On ${timestamp}, high CPU usage was detected, initiating a reboot.`;
+                        }
+                        return { timestamp, message };
+                    });
+
+                    const uploadEvent = parseLogUploadEvent(logUploadStatus);
+                    if (uploadEvent) events.push(uploadEvent);
+
+                    // Chronological order (oldest first). Timestamps are
+                    // 'YYYY-MM-DD HH:MM:SS', so a plain string sort is chronological.
+                    events.sort((a, b) => String(a.timestamp).localeCompare(String(b.timestamp)));
+
                     selfHealEvents.innerHTML = `
                         <ul class="self-heal-events-list">
-                            ${historicalEvents.map(event => {
-                                let message = '';
-                                const parts = event.split(' - ');
-                                const timestamp = parts[0] || '';
-                                const reason = parts[1] || '';
-                                
-                                if (!reason) {
-                                    message = `On ${timestamp}, a reboot was triggered.`;
-                                } else if (reason === 'MEM_THRESHOLD') {
-                                    message = `On ${timestamp}, memory threshold was exceeded, triggering a reboot.`;
-                                } else if (reason === 'PING_FAILED') {
-                                    message = `On ${timestamp}, a ping failure was detected, triggering a reboot.`;
-                                } else if (reason.includes && reason.includes('SPEED_TEST')) {
-                                    message = `On ${timestamp}, a speed test was conducted with result: ${reason.split(' - ')[1] || 'unknown'}.`;
-                                } else {
-                                    message = `On ${timestamp}, high CPU usage was detected, initiating a reboot.`;
-                                }
-                                return `<li>${message}</li>`;
-                            }).join('')}
+                            ${events.map(e => `<li>${e.message}</li>`).join('')}
                         </ul>
                     `;
                 } else {

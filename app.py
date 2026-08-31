@@ -67,7 +67,8 @@ OID_LIST = {
     "tinnoSpeedtestUrl": "1.3.6.1.4.1.62596.1.1.1.16.2",
     "tinnoSpeedtestServerPort": "1.3.6.1.4.1.62596.1.1.1.17.2",
     "tinnoSHConnTestEnable": "1.3.6.1.4.1.62596.1.1.1.35.2",
-    "tinnoSHtftpserver": "1.3.6.1.4.1.62596.1.1.1.53.2"
+    "tinnoSHtftpserver": "1.3.6.1.4.1.62596.1.1.1.53.2",
+    "tinnoLogUploaderStatus": "1.3.6.1.4.1.62596.1.1.1.54"
 }
 
 VALUE_MAPPINGS = {
@@ -121,7 +122,8 @@ DISPLAY_NAMES = {
     "tinnoSpeedtestUrl": "Speed Test Server",
     "tinnoSpeedtestServerPort": "Speed Test Server Port",
     "tinnoSHConnTestEnable": "Connectivity Test Enable",
-    "tinnoSHtftpserver": "TFTP Log Server"
+    "tinnoSHtftpserver": "TFTP Log Server",
+    "tinnoLogUploaderStatus": "Diagnostic Log Upload"
 }
 
 # SNMP Settings
@@ -405,6 +407,13 @@ def get_snmp_data():
                             value = f"{raw_value} Mbps"
                         elif name == "tinnoAvgCPUThreshold":
                             value = f"{raw_value} %"
+                        elif name == "tinnoLogUploaderStatus":
+                            # "<last-run-time> - <RESULT> [<detail>]", or an
+                            # empty string when no diagnostic-log upload has
+                            # been attempted yet. Passed through verbatim - the
+                            # dashboard parses the timestamp/result client-side
+                            # to slot it into the Self-Healing Events list.
+                            value = raw_value
                         elif name == "tinnoLastActionTakenTime":
                             try:
                                 value = time.strftime("%Y-%m-%d %H:%M", time.strptime(raw_value, "%Y%m%d%H%M"))
