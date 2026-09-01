@@ -395,6 +395,19 @@ def get_snmp_data():
                         value = mapped_reasons
                     else:
                         value = ["No data"]
+                elif name == "tinnoLogUploaderStatus":
+                    # Accumulated diagnostic-log upload history, built like
+                    # reboot_log.txt: one "<time> - <TRIGGER> - <STATUS>" entry
+                    # per upload attempt, comma-separated, last 10 retained.
+                    # Returned as a list of raw entries - the dashboard splits
+                    # trigger/status, phrases each one, and merges them into the
+                    # Self-Healing Events timeline by timestamp.
+                    match = re.search(r'STRING: "(.+)"', result)
+                    if match and match.group(1).strip():
+                        raw_value = match.group(1).strip()
+                        value = [e.strip() for e in raw_value.split(",") if e.strip()][:10]
+                    else:
+                        value = ["No data"]
                 else:
                     match = re.search(r"= (.+?): (.+)", result)
                     if match:
@@ -407,13 +420,6 @@ def get_snmp_data():
                             value = f"{raw_value} Mbps"
                         elif name == "tinnoAvgCPUThreshold":
                             value = f"{raw_value} %"
-                        elif name == "tinnoLogUploaderStatus":
-                            # "<last-run-time> - <RESULT> [<detail>]", or an
-                            # empty string when no diagnostic-log upload has
-                            # been attempted yet. Passed through verbatim - the
-                            # dashboard parses the timestamp/result client-side
-                            # to slot it into the Self-Healing Events list.
-                            value = raw_value
                         elif name == "tinnoLastActionTakenTime":
                             try:
                                 value = time.strftime("%Y-%m-%d %H:%M", time.strptime(raw_value, "%Y%m%d%H%M"))
@@ -428,12 +434,12 @@ def get_snmp_data():
             except subprocess.CalledProcessError as e:
                 logger.error(f"SNMP command failed for {name}: {e}")
                 display_name = DISPLAY_NAMES.get(name, name)
-                error_value = ["Unable to connect to modem"] if name == "tinnoHistoricalRebootReason" else "Unable to connect to modem"
+                error_value = ["Unable to connect to modem"] if name in ("tinnoHistoricalRebootReason", "tinnoLogUploaderStatus") else "Unable to connect to modem"
                 data.append({"name": display_name, "value": error_value})
             except Exception as e:
                 logger.error(f"Unexpected error for {name}: {e}")
                 display_name = DISPLAY_NAMES.get(name, name)
-                error_value = ["Unable to connect to modem"] if name == "tinnoHistoricalRebootReason" else "Unable to connect to modem"
+                error_value = ["Unable to connect to modem"] if name in ("tinnoHistoricalRebootReason", "tinnoLogUploaderStatus") else "Unable to connect to modem"
                 data.append({"name": display_name, "value": error_value})
     except Exception as e:
         logger.error(f"General SNMP error: {e}")

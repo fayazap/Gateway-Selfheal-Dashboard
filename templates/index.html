@@ -1391,40 +1391,58 @@ body {
             }
         });
 
-        // Turn a tinnoLogUploaderStatus string ("<last-run-time> - <RESULT>
-        // [<detail>]") into a { timestamp, message } self-healing event, or
-        // null when no diagnostic-log upload has been attempted yet.
-        function parseLogUploadEvent(status) {
-            if (!status || typeof status !== 'string') return null;
-            const m = status.match(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\s*-\s*([A-Z_]+)\s*(?:\[(.*?)\])?\s*$/);
+        // Turn one accumulated tinnoLogUploaderStatus entry
+        // ("<time> - <TRIGGER> - <STATUS>") into a { timestamp, message }
+        // self-healing event, or null if the entry can't be parsed. The
+        // sentence is composed here from the trigger and status tokens - SNMP/C
+        // does no phrasing.
+        function parseLogUploadEvent(entry) {
+            if (!entry || typeof entry !== 'string') return null;
+            const m = entry.match(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\s*-\s*([A-Z_]+)\s*-\s*([A-Z_]+)\s*$/);
             if (!m) return null;
             const timestamp = m[1];
-            const result = m[2];
-            const detail = (m[3] || '').trim();
+            const trigger = m[2];
+            const status = m[3];
+
+            // Why the log collection ran. Trigger vocabulary mirrors
+            // reboot_log.txt, plus THROUGHPUT_TEST_FAILED (no reboot
+            // counterpart) and RETRY (handled separately below).
+            const TRIGGER_CAUSE = {
+                PING_FAILED: 'the connectivity test failed',
+                THROUGHPUT_TEST_FAILED: 'the throughput test failed',
+                MEM_THRESHOLD: 'the memory threshold was exceeded',
+                MEM_THRESHOLD_MW: 'the memory threshold was exceeded during the maintenance window',
+                CPU_THRESHOLD: 'the CPU threshold was exceeded',
+                DS_MANAGER_HIGH_CPU: 'the DS manager reported sustained high CPU usage',
+                SNMP_AGENT_CM_HIGH_CPU: 'the SNMP agent reported sustained high CPU usage'
+            };
+
+            // What happened to the upload.
+            const OUTCOME = {
+                SUCCESS: 'the logs were successfully uploaded to the TFTP server',
+                PARTIAL: 'the logs were only partially uploaded to the TFTP server',
+                SERVER_UNREACHABLE: 'the log upload failed because the TFTP server was unreachable',
+                NO_TFTP_CLIENT: 'the log upload failed because no TFTP client is available',
+                RETAINED_NO_SERVER: 'the logs were retained locally because no TFTP server is configured'
+            };
+
             let message;
-            switch (result) {
-                case 'SUCCESS':
-                    message = `On ${timestamp}, diagnostic logs were successfully uploaded to the TFTP server.`;
-                    break;
-                case 'PARTIAL':
-                    message = `On ${timestamp}, a diagnostic log upload only partially completed.`;
-                    break;
-                case 'SERVER_UNREACHABLE':
-                    message = `On ${timestamp}, a diagnostic log upload failed because the TFTP server was unreachable.`;
-                    break;
-                case 'RETAINED_NO_SERVER':
-                    message = `On ${timestamp}, diagnostic logs were retained locally because no TFTP server is configured.`;
-                    break;
-                case 'NO_TFTP_CLIENT':
-                    message = `On ${timestamp}, a diagnostic log upload failed because no TFTP client is available.`;
-                    break;
-                case 'DISABLED':
-                    message = `On ${timestamp}, diagnostic log upload is disabled.`;
-                    break;
-                default:
-                    message = `On ${timestamp}, a diagnostic log upload finished with result ${result}.`;
+            if (trigger === 'RETRY') {
+                // A --retry-only run resending a batch left pending from before a reboot.
+                const RETRY_OUTCOME = {
+                    SUCCESS: 'the failed logs were successfully uploaded to the TFTP server from boot',
+                    PARTIAL: 'the failed logs were only partially uploaded to the TFTP server from boot',
+                    SERVER_UNREACHABLE: 'the pending logs from boot could not be uploaded because the TFTP server was unreachable',
+                    NO_TFTP_CLIENT: 'the pending logs from boot could not be uploaded because no TFTP client is available',
+                    RETAINED_NO_SERVER: 'the pending logs from boot were retained locally because no TFTP server is configured'
+                };
+                const clause = RETRY_OUTCOME[status] || `a retry of the pending log upload from boot finished with status ${status}`;
+                message = `On ${timestamp}, ${clause}.`;
+            } else {
+                const cause = TRIGGER_CAUSE[trigger] || `a self-heal action (${trigger}) was triggered`;
+                const outcome = OUTCOME[status] || `the log upload finished with status ${status}`;
+                message = `On ${timestamp}, ${cause}, and ${outcome}.`;
             }
-            if (detail) message += ` (${detail})`;
             return { timestamp, message };
         }
 
@@ -1500,14 +1518,20 @@ body {
                 rebootCountText = `${lastRebootCount} reboots`;
                 rebootCount.textContent = rebootCountText;
 
-                // Process self-healing events
-                const historicalEvents = data.find(d => d.name === 'Historical Reboot Reasons')?.value || ['Unable to connect to modem'];
-                const logUploadStatus = data.find(d => d.name === 'Diagnostic Log Upload')?.value || '';
-                if (Array.isArray(historicalEvents) && historicalEvents.length > 0 && historicalEvents[0] !== 'Unable to connect to modem') {
-                    // Build one timestamp-sorted timeline of self-healing events:
-                    // the reboot events from tinnoHistoricalRebootReason plus the
-                    // most recent diagnostic-log upload from tinnoLogUploaderStatus.
-                    const events = historicalEvents.map(event => {
+                // Process self-healing events. Reboot history
+                // (tinnoHistoricalRebootReason) and diagnostic-log upload
+                // history (tinnoLogUploaderStatus) are both accumulated,
+                // comma-split lists of "<time> - ..." entries; they're merged
+                // into one timeline and sorted by timestamp (oldest first).
+                const historicalEvents = data.find(d => d.name === 'Historical Reboot Reasons')?.value || [];
+                const logUploadEvents = data.find(d => d.name === 'Diagnostic Log Upload')?.value || [];
+                const isRealList = list => Array.isArray(list) && list.length > 0 &&
+                    list[0] !== 'Unable to connect to modem' && list[0] !== 'No data';
+
+                const events = [];
+
+                if (isRealList(historicalEvents)) {
+                    historicalEvents.forEach(event => {
                         let message = '';
                         const parts = event.split(' - ');
                         const timestamp = parts[0] || '';
@@ -1524,12 +1548,18 @@ body {
                         } else {
                             message = `On ${timestamp}, high CPU usage was detected, initiating a reboot.`;
                         }
-                        return { timestamp, message };
+                        events.push({ timestamp, message });
                     });
+                }
 
-                    const uploadEvent = parseLogUploadEvent(logUploadStatus);
-                    if (uploadEvent) events.push(uploadEvent);
+                if (isRealList(logUploadEvents)) {
+                    logUploadEvents.forEach(entry => {
+                        const evt = parseLogUploadEvent(entry);
+                        if (evt) events.push(evt);
+                    });
+                }
 
+                if (events.length > 0) {
                     // Chronological order (oldest first). Timestamps are
                     // 'YYYY-MM-DD HH:MM:SS', so a plain string sort is chronological.
                     events.sort((a, b) => String(a.timestamp).localeCompare(String(b.timestamp)));
