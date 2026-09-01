@@ -1391,11 +1391,50 @@ body {
             }
         });
 
+        // Shared self-heal trigger vocabulary (matches reboot_log.txt, plus the
+        // upload-only THROUGHPUT_TEST_FAILED and RETRY). Used to phrase reboot
+        // events and diagnostic-log upload events, and to correlate the two when
+        // they come from the same trigger.
+        const SELFHEAL_TRIGGER_CAUSE = {
+            PING_FAILED: 'the connectivity test failed',
+            THROUGHPUT_TEST_FAILED: 'the throughput test failed',
+            MEM_THRESHOLD: 'the memory threshold was exceeded',
+            MEM_THRESHOLD_MW: 'the memory threshold was exceeded during the maintenance window',
+            CPU_THRESHOLD: 'the CPU threshold was exceeded',
+            DS_MANAGER_HIGH_CPU: 'the DS manager reported sustained high CPU usage',
+            SNMP_AGENT_CM_HIGH_CPU: 'the SNMP agent reported sustained high CPU usage'
+        };
+
+        // What happened to a diagnostic-log upload.
+        const LOG_UPLOAD_OUTCOME = {
+            SUCCESS: 'the logs were successfully uploaded to the TFTP server',
+            PARTIAL: 'the logs were only partially uploaded to the TFTP server',
+            SERVER_UNREACHABLE: 'the log upload failed because the TFTP server was unreachable',
+            NO_TFTP_CLIENT: 'the log upload failed because no TFTP client is available',
+            RETAINED_NO_SERVER: 'the logs were retained locally because no TFTP server is configured'
+        };
+
+        const triggerCause = trigger => SELFHEAL_TRIGGER_CAUSE[trigger] || `a self-heal action (${trigger}) was triggered`;
+        const uploadOutcome = status => LOG_UPLOAD_OUTCOME[status] || `the log upload finished with status ${status}`;
+
+        // Standalone reboot event sentence from a raw trigger token.
+        function rebootEventSentence(trigger, timestamp) {
+            return SELFHEAL_TRIGGER_CAUSE[trigger]
+                ? `On ${timestamp}, ${SELFHEAL_TRIGGER_CAUSE[trigger]}, and a reboot was triggered.`
+                : `On ${timestamp}, a reboot was triggered.`;
+        }
+
+        // One consolidated line for a reboot that was preceded by a
+        // diagnostic-log upload from the same trigger.
+        function consolidatedSelfHealSentence(trigger, timestamp, status) {
+            return `On ${timestamp}, ${triggerCause(trigger)}, ${uploadOutcome(status)}, and a reboot was triggered.`;
+        }
+
         // Turn one accumulated tinnoLogUploaderStatus entry
-        // ("<time> - <TRIGGER> - <STATUS>") into a { timestamp, message }
-        // self-healing event, or null if the entry can't be parsed. The
-        // sentence is composed here from the trigger and status tokens - SNMP/C
-        // does no phrasing.
+        // ("<time> - <TRIGGER> - <STATUS>") into a
+        // { timestamp, trigger, status, message } self-healing event, or null if
+        // the entry can't be parsed. The sentence is composed here from the
+        // trigger and status tokens - SNMP/C does no phrasing.
         function parseLogUploadEvent(entry) {
             if (!entry || typeof entry !== 'string') return null;
             const m = entry.match(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\s*-\s*([A-Z_]+)\s*-\s*([A-Z_]+)\s*$/);
@@ -1403,28 +1442,6 @@ body {
             const timestamp = m[1];
             const trigger = m[2];
             const status = m[3];
-
-            // Why the log collection ran. Trigger vocabulary mirrors
-            // reboot_log.txt, plus THROUGHPUT_TEST_FAILED (no reboot
-            // counterpart) and RETRY (handled separately below).
-            const TRIGGER_CAUSE = {
-                PING_FAILED: 'the connectivity test failed',
-                THROUGHPUT_TEST_FAILED: 'the throughput test failed',
-                MEM_THRESHOLD: 'the memory threshold was exceeded',
-                MEM_THRESHOLD_MW: 'the memory threshold was exceeded during the maintenance window',
-                CPU_THRESHOLD: 'the CPU threshold was exceeded',
-                DS_MANAGER_HIGH_CPU: 'the DS manager reported sustained high CPU usage',
-                SNMP_AGENT_CM_HIGH_CPU: 'the SNMP agent reported sustained high CPU usage'
-            };
-
-            // What happened to the upload.
-            const OUTCOME = {
-                SUCCESS: 'the logs were successfully uploaded to the TFTP server',
-                PARTIAL: 'the logs were only partially uploaded to the TFTP server',
-                SERVER_UNREACHABLE: 'the log upload failed because the TFTP server was unreachable',
-                NO_TFTP_CLIENT: 'the log upload failed because no TFTP client is available',
-                RETAINED_NO_SERVER: 'the logs were retained locally because no TFTP server is configured'
-            };
 
             let message;
             if (trigger === 'RETRY') {
@@ -1439,11 +1456,9 @@ body {
                 const clause = RETRY_OUTCOME[status] || `a retry of the pending log upload from boot finished with status ${status}`;
                 message = `On ${timestamp}, ${clause}.`;
             } else {
-                const cause = TRIGGER_CAUSE[trigger] || `a self-heal action (${trigger}) was triggered`;
-                const outcome = OUTCOME[status] || `the log upload finished with status ${status}`;
-                message = `On ${timestamp}, ${cause}, and ${outcome}.`;
+                message = `On ${timestamp}, ${triggerCause(trigger)}, and ${uploadOutcome(status)}.`;
             }
-            return { timestamp, message };
+            return { timestamp, trigger, status, message };
         }
 
         // Fetch SNMP data and update summary
@@ -1521,8 +1536,10 @@ body {
                 // Process self-healing events. Reboot history
                 // (tinnoHistoricalRebootReason) and diagnostic-log upload
                 // history (tinnoLogUploaderStatus) are both accumulated,
-                // comma-split lists of "<time> - ..." entries; they're merged
-                // into one timeline and sorted by timestamp (oldest first).
+                // comma-split lists of "<time> - ..." entries. A reboot and an
+                // upload from the same trigger are collapsed into one line;
+                // everything else is merged into a single timeline sorted by
+                // timestamp (oldest first).
                 const historicalEvents = data.find(d => d.name === 'Historical Reboot Reasons')?.value || [];
                 const logUploadEvents = data.find(d => d.name === 'Diagnostic Log Upload')?.value || [];
                 const isRealList = list => Array.isArray(list) && list.length > 0 &&
@@ -1531,34 +1548,42 @@ body {
 
                 const events = [];
 
-                if (isRealList(historicalEvents)) {
-                    historicalEvents.forEach(event => {
-                        let message = '';
+                // A reboot and a diagnostic-log upload that share a trigger and
+                // land within this window are the same self-heal action and get
+                // one consolidated line instead of two.
+                const SELFHEAL_CORRELATE_WINDOW_MS = 10 * 60 * 1000;
+                const toMs = ts => Date.parse(String(ts).replace(' ', 'T'));
+
+                const rebootRecords = isRealList(historicalEvents)
+                    ? historicalEvents.map(event => {
                         const parts = event.split(' - ');
-                        const timestamp = parts[0] || '';
-                        const reason = parts[1] || '';
+                        return { timestamp: parts[0] || '', trigger: (parts[1] || '').trim() };
+                    })
+                    : [];
 
-                        if (!reason) {
-                            message = `On ${timestamp}, a reboot was triggered.`;
-                        } else if (reason === 'MEM_THRESHOLD') {
-                            message = `On ${timestamp}, memory threshold was exceeded, triggering a reboot.`;
-                        } else if (reason === 'PING_FAILED') {
-                            message = `On ${timestamp}, a ping failure was detected, triggering a reboot.`;
-                        } else if (reason.includes && reason.includes('SPEED_TEST')) {
-                            message = `On ${timestamp}, a speed test was conducted with result: ${reason.split(' - ')[1] || 'unknown'}.`;
-                        } else {
-                            message = `On ${timestamp}, high CPU usage was detected, initiating a reboot.`;
-                        }
-                        events.push({ timestamp, message });
-                    });
-                }
+                const uploadRecords = isRealList(logUploadEvents)
+                    ? logUploadEvents.map(parseLogUploadEvent).filter(Boolean).map(r => ({ ...r, consumed: false }))
+                    : [];
 
-                if (isRealList(logUploadEvents)) {
-                    logUploadEvents.forEach(entry => {
-                        const evt = parseLogUploadEvent(entry);
-                        if (evt) events.push(evt);
-                    });
-                }
+                rebootRecords.forEach(rb => {
+                    const rbMs = toMs(rb.timestamp);
+                    const match = rb.trigger && !isNaN(rbMs) && uploadRecords.find(up =>
+                        !up.consumed && up.trigger === rb.trigger &&
+                        !isNaN(toMs(up.timestamp)) &&
+                        Math.abs(toMs(up.timestamp) - rbMs) <= SELFHEAL_CORRELATE_WINDOW_MS
+                    );
+                    if (match) {
+                        match.consumed = true;
+                        events.push({ timestamp: rb.timestamp, message: consolidatedSelfHealSentence(rb.trigger, rb.timestamp, match.status) });
+                    } else {
+                        events.push({ timestamp: rb.timestamp, message: rebootEventSentence(rb.trigger, rb.timestamp) });
+                    }
+                });
+
+                // Uploads not folded into a reboot line stand on their own.
+                uploadRecords.forEach(up => {
+                    if (!up.consumed) events.push({ timestamp: up.timestamp, message: up.message });
+                });
 
                 if (events.length > 0) {
                     // Chronological order (oldest first). Timestamps are

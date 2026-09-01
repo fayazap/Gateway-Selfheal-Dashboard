@@ -81,13 +81,6 @@ VALUE_MAPPINGS = {
         "3": "Firmware Issue",
         "4": "Network Failure"
     },
-    "tinnoHistoricalRebootReason": {
-        "CPU_THRESHOLD": "High CPU Usage",
-        "POWER_CYCLE": "Power Cycle",
-        "MEMORY_OVERLOAD": "Memory Overload",
-        "FIRMWARE_ISSUE": "Firmware Issue",
-        "NETWORK_FAILURE": "Network Failure"
-    },
     "deviceDQosLiteDirection": {
         "0": "Disabled",
         "1": "Send and Receive",
@@ -315,7 +308,7 @@ def cause_memory_leak():
             free_mem = parse_free_memory(mem_output)
             logger.info(f"Iteration {i+1}: Free memory: {free_mem} KB")
             log_value("memory_leak_modem.log", free_mem, "KB")
-            if free_mem < 20000:
+            if free_mem < 10000:
                 logger.warning("Free memory critically low, stopping...")
                 break
             time.sleep(5)
@@ -383,16 +376,16 @@ def get_snmp_data():
                     universal_newlines=True
                 )
                 if name == "tinnoHistoricalRebootReason":
+                    # Accumulated reboot history, same shape as
+                    # tinnoLogUploaderStatus: "<time> - <TRIGGER>" entries,
+                    # comma-separated, last 10 retained. Raw trigger tokens are
+                    # passed straight through (no phrasing / no mapping here) so
+                    # the dashboard can phrase them and correlate each one with a
+                    # matching diagnostic-log upload from the same trigger.
                     match = re.search(r'STRING: "(.+)"', result)
-                    if match:
+                    if match and match.group(1).strip():
                         raw_value = match.group(1).strip()
-                        reasons = [r.strip() for r in raw_value.split(",") if r.strip()][:10]
-                        mapped_reasons = []
-                        for reason in reasons:
-                            timestamp, reason_code = re.match(r'(.+?) - (.+)', reason).groups()
-                            mapped_reason = VALUE_MAPPINGS.get(name, {}).get(reason_code, reason_code)
-                            mapped_reasons.append(f"{timestamp} - {mapped_reason}")
-                        value = mapped_reasons
+                        value = [e.strip() for e in raw_value.split(",") if e.strip()][:10]
                     else:
                         value = ["No data"]
                 elif name == "tinnoLogUploaderStatus":
