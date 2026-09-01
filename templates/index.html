@@ -1527,6 +1527,7 @@ body {
                 const logUploadEvents = data.find(d => d.name === 'Diagnostic Log Upload')?.value || [];
                 const isRealList = list => Array.isArray(list) && list.length > 0 &&
                     list[0] !== 'Unable to connect to modem' && list[0] !== 'No data';
+                const isNoData = list => Array.isArray(list) && list[0] === 'No data';
 
                 const events = [];
 
@@ -1569,6 +1570,9 @@ body {
                             ${events.map(e => `<li>${e.message}</li>`).join('')}
                         </ul>
                     `;
+                } else if (isNoData(historicalEvents) && isNoData(logUploadEvents)) {
+                    // Modem reachable, but no reboot or log-upload history recorded yet.
+                    selfHealEvents.innerHTML = 'No data';
                 } else {
                     selfHealEvents.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Unable to retrieve self-healing events due to modem connectivity issues.';
                 }
