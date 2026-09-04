@@ -41,7 +41,7 @@ def parse_snmp_cpu_usage(snmp_output):
     return None
 
 def parse_snmp_memory_usage(snmp_output):
-    """Parse Free Memory in kB from SNMP tinnoLiveMemoryStat output."""
+    """Parse memory usage percentage from SNMP tinnoLiveMemoryStat output (OID .52)."""
     match = re.search(r"INTEGER:\s*(\d+)", snmp_output)
     if match:
         return float(match.group(1))
@@ -117,7 +117,7 @@ def get_modem_stats(hostname=SNMP_HOST):
         results["WAN0 Packets"] = f"RX packets:{last_known_values['WAN0 Packets']['in_packets']} TX packets:{last_known_values['WAN0 Packets']['out_packets']}"
         results["WAN0 Dropped Packets"] = f"RX dropped:{last_known_values['WAN0 Dropped Packets']['in_discards']} TX dropped:{last_known_values['WAN0 Dropped Packets']['out_discards']}"
         log_value("cpu_usage.log", results["CPU Usage"], "%", is_last_known=True)
-        log_value("free_memory.log", results["Memory Usage"], "kB", is_last_known=True)
+        log_value("mem_usage.log", results["Memory Usage"], "%", is_last_known=True)
         log_value("throughput.log", results["Throughput"], "Mbps", is_last_known=True)
         log_value("wan0_stats.log",
                   f"IP address:{ip_address} RX packets:{last_known_values['WAN0 Packets']['in_packets']} "
@@ -126,7 +126,7 @@ def get_modem_stats(hostname=SNMP_HOST):
                   f"TX dropped:{last_known_values['WAN0 Dropped Packets']['out_discards']} Reachable:{is_reachable}",
                   "", overwrite=True, is_last_known=True)
         print(f"\n[OUTPUT] CPU Usage:\n{results['CPU Usage']}% (last known)")
-        print(f"\n[OUTPUT] Memory Usage:\n{results['Memory Usage']} kB (last known)")
+        print(f"\n[OUTPUT] Memory Usage:\n{results['Memory Usage']}% (last known)")
         print(f"\n[OUTPUT] Throughput:\n{results['Throughput']} Mbps (last known)")
         print(f"\n[OUTPUT] WAN0 Packets:\n{results['WAN0 Packets']} (last known)")
         print(f"\n[OUTPUT] WAN0 Dropped Packets:\n{results['WAN0 Dropped Packets']} (last known)")
@@ -184,18 +184,18 @@ def get_modem_stats(hostname=SNMP_HOST):
         if memory_usage is not None:
             results["Memory Usage"] = memory_usage
             last_known_values["Memory Usage"] = memory_usage
-            logging.info(f"Parsed Memory Usage: {memory_usage} kB")
-            log_value("free_memory.log", memory_usage, "kB")
+            logging.info(f"Parsed Memory Usage: {memory_usage}%")
+            log_value("mem_usage.log", memory_usage, "%")
         else:
             results["Memory Usage"] = last_known_values["Memory Usage"]
-            log_value("free_memory.log", results["Memory Usage"], "kB", is_last_known=True)
+            log_value("mem_usage.log", results["Memory Usage"], "%", is_last_known=True)
             logging.warning("Using last known Memory Usage")
-        print(f"\n[OUTPUT] Memory Usage:\n{results['Memory Usage']} kB")
+        print(f"\n[OUTPUT] Memory Usage:\n{results['Memory Usage']}%")
     except subprocess.CalledProcessError as e:
         logging.error(f"SNMP Memory Usage command failed: {e.stderr}")
         results["Memory Usage"] = last_known_values["Memory Usage"]
-        log_value("free_memory.log", results["Memory Usage"], "kB", is_last_known=True)
-        print(f"\n[OUTPUT] Memory Usage:\n{results['Memory Usage']} kB (last known)")
+        log_value("mem_usage.log", results["Memory Usage"], "%", is_last_known=True)
+        print(f"\n[OUTPUT] Memory Usage:\n{results['Memory Usage']}% (last known)")
 
     # Throughput
     try:

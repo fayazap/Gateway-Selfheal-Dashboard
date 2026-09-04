@@ -628,18 +628,26 @@ def api_snmp():
 @app.route("/api/usage")
 def api_usage():
     cpu_data = read_log_data('cpu_usage.log')
-    memory_data = read_log_data('free_memory.log')
+    memory_data = read_log_data('mem_usage.log')
     throughput_data = read_log_data('throughput.log')
 
-    # Fetch just the two threshold OIDs directly instead of walking all of
-    # OID_LIST via get_snmp_data() (18 snmpwalk subprocess spawns) just to
-    # string-match two display names out of the result. This endpoint is
+    # Fetch just the three threshold OIDs directly instead of walking all of
+    # OID_LIST via get_snmp_data() (one snmpwalk subprocess spawn per OID) just
+    # to string-match a few display names out of the result. This endpoint is
     # polled every 10s by the frontend.
     cpu_threshold = 80  # Fallback default
     raw_cpu_threshold = get_snmp_raw_value(OID_LIST["tinnoAvgCPUThreshold"])
     if raw_cpu_threshold is not None:
         try:
             cpu_threshold = float(raw_cpu_threshold)
+        except ValueError:
+            pass
+
+    mem_threshold = 80  # Fallback default
+    raw_mem_threshold = get_snmp_raw_value(OID_LIST["tinnoAvgMemoryThreshold"])
+    if raw_mem_threshold is not None:
+        try:
+            mem_threshold = float(raw_mem_threshold)
         except ValueError:
             pass
 
@@ -656,6 +664,7 @@ def api_usage():
         'memory': memory_data,
         'throughput': throughput_data,
         'cpu_threshold': cpu_threshold,
+        'mem_threshold': mem_threshold,
         'speedtest_threshold': speedtest_threshold
     })
 

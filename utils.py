@@ -2,7 +2,7 @@
 
 Consolidates the log_value()/read_log_data() pair that used to be defined
 (with slightly different signatures) in each file, and adds rotation/tailing
-so the plain-text log files (cpu_usage.log, free_memory.log, throughput.log,
+so the plain-text log files (cpu_usage.log, mem_usage.log, throughput.log,
 memory_leak_modem.log, ...) don't grow forever and don't need to be parsed in
 full just to read the most recent points.
 """
