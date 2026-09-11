@@ -672,9 +672,9 @@ def api_usage():
 def api_wan0_status():
     return jsonify(read_wan0_status())
 
-@app.route("/api/qos_status")
-def api_qos_status():
-    return jsonify(set_qos_direction())
+# @app.route("/api/qos_status")
+# def api_qos_status():
+#     return jsonify(set_qos_direction())
 
 @app.route("/api/trigger_memory_leak", methods=["POST"])
 @async_endpoint
