@@ -1573,11 +1573,19 @@ body {
 
                 rebootRecords.forEach(rb => {
                     const rbMs = toMs(rb.timestamp);
-                    const match = rb.trigger && !isNaN(rbMs) && uploadRecords.find(up =>
-                        !up.consumed && up.trigger === rb.trigger &&
-                        !isNaN(toMs(up.timestamp)) &&
-                        Math.abs(toMs(up.timestamp) - rbMs) <= SELFHEAL_CORRELATE_WINDOW_MS
-                    );
+                    // Several upload attempts for the same trigger can land inside the
+                    // window (e.g. retries before the one that actually preceded the
+                    // reboot), so pick the closest one in time, not just the first.
+                    const match = (rb.trigger && !isNaN(rbMs) ? uploadRecords : [])
+                        .filter(up =>
+                            !up.consumed && up.trigger === rb.trigger &&
+                            !isNaN(toMs(up.timestamp)) &&
+                            Math.abs(toMs(up.timestamp) - rbMs) <= SELFHEAL_CORRELATE_WINDOW_MS
+                        )
+                        .reduce((closest, up) => {
+                            const diff = Math.abs(toMs(up.timestamp) - rbMs);
+                            return !closest || diff < closest.diff ? { up, diff } : closest;
+                        }, null)?.up;
                     if (match) {
                         match.consumed = true;
                         events.push({ timestamp: rb.timestamp, message: consolidatedSelfHealSentence(rb.trigger, rb.timestamp, match.status) });
