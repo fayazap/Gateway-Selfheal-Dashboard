@@ -1415,7 +1415,7 @@ body {
         const LOG_UPLOAD_OUTCOME = {
             SUCCESS: 'the logs were successfully uploaded to the TFTP server',
             PARTIAL: 'the logs were only partially uploaded to the TFTP server',
-            SERVER_UNREACHABLE: 'the log upload failed because the TFTP server was unreachable',
+            FAILED: 'none of the logs could be uploaded to the TFTP server',
             NO_TFTP_CLIENT: 'the log upload failed because no TFTP client is available',
             RETAINED_NO_SERVER: 'the logs were retained locally because no TFTP server is configured'
         };
@@ -1455,7 +1455,7 @@ body {
                 const RETRY_OUTCOME = {
                     SUCCESS: 'the failed logs were successfully uploaded to the TFTP server from boot',
                     PARTIAL: 'the failed logs were only partially uploaded to the TFTP server from boot',
-                    SERVER_UNREACHABLE: 'the pending logs from boot could not be uploaded because the TFTP server was unreachable',
+                    FAILED: 'none of the pending logs from boot could be uploaded to the TFTP server',
                     NO_TFTP_CLIENT: 'the pending logs from boot could not be uploaded because no TFTP client is available',
                     RETAINED_NO_SERVER: 'the pending logs from boot were retained locally because no TFTP server is configured'
                 };
