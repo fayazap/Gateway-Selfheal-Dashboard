@@ -1,0 +1,949 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI based Self healing Dashboard</title>
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ---------- D3.1 dashboard theme: Poppins, green #007451, sidebar + gradient header, green card headers ---------- */
+:root {
+    color-scheme: light;
+    --brand: #007451; --brand-2: #00a676; --brand-soft: #e6f3ec;
+    --page: #f8f9fa; --side: #eaf1ef; --card: #ffffff; --line: #e0e0e0; --row: #f8f9fa;
+    --text: #333333; --text-2: #555555; --muted: #6c757d;
+    --green: #28a745; --green-fill: rgba(40, 167, 69, .2);      /* chart line / fill, as in D3.1 */
+    --blue: #007451;                                             /* links, focus */
+    --series2: #424242;                                          /* second line in the anomaly sparkline */
+    --good: #28a745; --warn: #b7791f; --bad: #dc3545;
+    --good-bg: #e6f3ec; --warn-bg: #fff3cd; --bad-bg: #f8d7da; --off-bg: #e9ecef;
+    --shadow: 0 2px 5px rgba(0, 0, 0, .1);
+}
+* { box-sizing: border-box; }
+html, body { overflow-x: hidden; }
+body { margin: 0; background: var(--page); color: var(--text); font: 14.5px/1.6 'Poppins', 'Segoe UI', system-ui, sans-serif; }
+.mono { font-family: ui-monospace, Consolas, 'Courier New', monospace; font-size: 12px; }
+.muted { color: var(--muted); }
+button { font: inherit; }
+.link { color: var(--brand); background: none; border: 0; padding: 0; cursor: pointer; font-size: 13px; font-weight: 600; }
+.link:hover { color: var(--brand-2); text-decoration: underline; }
+.on { color: var(--good); font-weight: 600; } .off { color: var(--muted); font-weight: 600; }
+
+/* ---------- layout: sidebar + main ---------- */
+.layout { display: flex; min-height: 100vh; width: 100%; }
+.side { width: 250px; flex: none; background: var(--side); border-right: 1px solid var(--line); box-shadow: 0 1px 3px rgba(0,0,0,.08);
+        position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; }
+.side-logo { text-align: center; padding: 16px; background: #fff; border-bottom: 1px solid #d3d9d6; }
+.side-logo img { max-height: 40px; max-width: 100%; }
+.side nav { padding: 16px 0; display: grid; gap: 4px; }
+.side-item { padding: 12px 20px; color: #424242; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; font-size: 13.5px;
+             display: flex; align-items: center; gap: 8px; text-decoration: none; transition: background-color .3s, color .3s; }
+.side-item i { width: 24px; text-align: center; }
+.side-item:hover, .side-item.active { background: var(--brand); color: #fff; }
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.main-header { background: linear-gradient(to right, #007451, #00a676); color: #fff; padding: 20px 30px; box-shadow: 0 2px 10px rgba(0,0,0,.1);
+               display: flex; justify-content: space-between; align-items: center; gap: 20px; flex-wrap: wrap; }
+.main-header h1 { margin: 0 0 4px; font-size: 1.6rem; font-weight: 700; letter-spacing: 1px; }
+.main-header h1 i { margin-right: 8px; }
+.main-header p { margin: 0; font-size: .95rem; color: #e8f5e9; }
+.who { font-size: 13.5px; font-weight: 600; background: rgba(255,255,255,.18); padding: 6px 14px; border-radius: 20px; white-space: nowrap; }
+.dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #cfd8dc; margin-right: 7px; }
+.dot.good { background: #7dffa8; } .dot.warn { background: #ffe08a; } .dot.bad { background: #ff9aa2; }
+.content { padding: 24px; }
+
+/* ---------- cards ---------- */
+.card { background: var(--card); border-radius: 5px; box-shadow: var(--shadow); margin-bottom: 24px; min-width: 0; transition: box-shadow .3s ease; }
+.card:hover { box-shadow: 0 4px 10px rgba(40, 167, 69, .2); }
+.card-header { background: var(--brand); color: #fff; font-weight: 600; border-radius: 5px 5px 0 0; padding: 14px 16px; font-size: 1rem;
+               display: flex; align-items: center; gap: 10px; }
+.card-header .right { margin-left: auto; }
+.card-b { padding: 18px 20px; }
+.card .by { font-size: 13px; color: var(--muted); }
+.card-f { border-top: 1px solid var(--line); padding: 10px 20px; display: flex; gap: 18px; align-items: center; font-size: 13px; color: var(--text-2); flex-wrap: wrap; }
+.card-f i { color: var(--brand); margin-right: 5px; }
+.card-f .right { margin-left: auto; }
+.tag { display: inline-block; padding: 3px 12px; border-radius: 20px; font-size: .78rem; font-weight: 600; background: var(--off-bg); color: var(--text-2); }
+.tag.good { background: #fff; color: var(--brand); } .tag.warn { background: var(--warn-bg); color: #7a5200; } .tag.bad { background: var(--bad-bg); color: var(--bad); }
+.card-header .tag:not(.good):not(.warn):not(.bad) { background: rgba(255,255,255,.25); color: #fff; }
+
+/* status card */
+.status { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+.status li { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: var(--row); border-left: 4px solid var(--brand); border-radius: 5px; min-width: 0; }
+.status li i { color: var(--brand); width: 20px; text-align: center; flex: none; }
+.status li .lbl { font-weight: 600; }
+.status li .n { margin-left: auto; color: var(--text-2); font-size: 13px; text-align: right; }
+
+/* metric cards */
+.metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; margin-bottom: 24px; }
+.metric-card { background: #fff; border-radius: 5px; padding: 20px 16px; text-align: center; box-shadow: var(--shadow); min-width: 0;
+               transition: transform .3s ease, box-shadow .3s ease; }
+.metric-card:hover { transform: scale(1.05); box-shadow: 0 4px 10px rgba(40, 167, 69, .2); }
+.metric-card > i { font-size: 1.5rem; color: var(--brand); transition: transform .3s ease; }
+.metric-card:hover > i { transform: rotate(10deg); }
+.metric-card h5 { margin: 14px 0 10px; font-size: 1.05rem; font-weight: 600; color: var(--text); }
+.metric-card p { margin: 0; font-weight: 500; overflow-wrap: anywhere; }
+.health-bar { width: 80%; max-width: 200px; margin: 10px auto 0; height: 12px; background: #e0e0e0; border-radius: 6px; overflow: hidden; box-shadow: 0 2px 5px rgba(0,0,0,.1); }
+.health-bar-fill { height: 100%; background: var(--brand); width: 0; transition: width 1s ease; }
+
+/* buttons */
+.actions { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 24px; }
+.actions .push { margin-left: auto; }
+.btn { display: inline-flex; align-items: center; gap: 8px; background: var(--brand); color: #fff; border: 1px solid var(--brand); padding: 10px 20px;
+       border-radius: 5px; font-size: .9rem; font-weight: 600; cursor: pointer; transition: background-color .3s ease, transform .3s ease; }
+.btn:hover { background: var(--brand-2); border-color: var(--brand-2); transform: translateY(-2px); }
+.btn:disabled { opacity: .6; cursor: default; transform: none; }
+.btn.light { background: #fff; color: var(--text); border-color: #ced4da; }
+.btn.light:hover { background: #f0f0f0; border-color: #ced4da; }
+
+.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; align-items: start; }
+.grid.two { grid-template-columns: repeat(2, 1fr); }
+.grid > * { min-width: 0; }
+.big { font-size: 1.9rem; font-weight: 700; margin-top: 8px; line-height: 1.2; color: var(--text); }
+.big small { font-size: .95rem; font-weight: 500; color: var(--muted); }
+.big.good { color: var(--good); } .big.warn { color: var(--warn); } .big.bad { color: var(--bad); }
+.line { font-size: 13.5px; color: var(--text-2); margin-top: 6px; }
+.line b { font-weight: 600; color: var(--text); }
+.chart-box { position: relative; height: 300px; }
+.chart-box.small { height: 230px; margin-top: 10px; }
+.cstats { display: flex; gap: 8px 22px; flex-wrap: wrap; justify-content: center; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 13px; color: var(--text-2); }
+.cstats b { color: var(--text); font-weight: 600; }
+/* confirmation dialog */
+.modal { position: fixed; inset: 0; z-index: 1070; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,.5); padding: 16px; }
+.modal.open { display: flex; }
+.modal-box { background: #fff; border-radius: 5px; box-shadow: 0 10px 40px rgba(0,0,0,.3); width: min(480px, 100%); overflow: hidden; animation: pop .18s ease-out; }
+@keyframes pop { from { opacity: 0; transform: translateY(-14px); } to { opacity: 1; transform: none; } }
+.modal-h { background: var(--brand); color: #fff; font-weight: 600; padding: 14px 18px; display: flex; align-items: center; gap: 10px; }
+.modal-b { padding: 20px 18px; line-height: 1.6; }
+.modal-f { padding: 0 18px 18px; display: flex; justify-content: flex-end; gap: 10px; }
+.modal-f .btn { padding: 8px 18px; }
+.nochart { color: var(--muted); font-size: 13px; padding: 20px 0; }
+
+/* anomaly list */
+.alist { list-style: none; margin: 12px 0 0; padding: 0; }
+.alist li { display: grid; grid-template-columns: 26px 1fr auto; gap: 10px; align-items: center; padding: 9px 10px; margin-bottom: 8px;
+            border-left: 4px solid var(--brand); background: var(--row); border-radius: 5px; cursor: pointer; transition: background .3s ease; }
+.alist li:hover:not(.static) { background: var(--brand-soft); border-left-color: var(--brand-2); }
+.alist li.static { cursor: default; }
+.alist .ic { width: 24px; height: 24px; border-radius: 50%; background: #fff; display: flex; align-items: center; justify-content: center; font-size: 11px; color: var(--brand); }
+.alist .ic.bad { color: var(--bad); }
+.alist .what { min-width: 0; }
+.alist .cmd { display: block; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.alist .when { font-size: 12px; color: var(--muted); }
+.alist .act { font-size: 12px; color: var(--muted); white-space: nowrap; text-align: right; font-weight: 600; }
+.alist .act.bad { color: var(--bad); }
+.empty { color: var(--muted); font-size: 13.5px; }
+.alist li.empty, .events li.empty { display: block; cursor: default; }
+.tbl { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 10px; }
+.tbl th { text-align: left; color: var(--text-2); font-weight: 600; padding: 4px 0; }
+.tbl td { padding: 6px 0; border-top: 1px solid var(--line); }
+.tbl .n { text-align: right; }
+details.more > summary { cursor: pointer; list-style: none; color: var(--brand); font-size: 13px; font-weight: 600; margin-top: 10px; }
+details.more > summary::-webkit-details-marker { display: none; }
+.log { background: var(--row); border: 1px solid var(--line); border-radius: 5px; padding: 8px 10px; max-height: 150px; overflow-y: auto; white-space: pre-wrap; margin-top: 10px; }
+.log:empty { display: none; }
+.result { font-weight: 600; margin-top: 12px; padding: 10px; border-radius: 5px; }
+.result:empty { display: none; }
+.result.ok { color: var(--good); background: var(--good-bg); border-left: 4px solid var(--good); }
+.result.bad { color: var(--bad); background: var(--bad-bg); border-left: 4px solid var(--bad); }
+
+/* events */
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { border: 1px solid rgba(255,255,255,.6); background: transparent; color: #fff; padding: 3px 12px; border-radius: 20px; font-size: .78rem; font-weight: 600; cursor: pointer; }
+.chip:hover { background: rgba(255,255,255,.2); }
+.chip.active { background: #fff; color: var(--brand); border-color: #fff; }
+.events { list-style: none; margin: 0; padding: 0; }
+.events li { display: grid; grid-template-columns: 12px 120px 1fr; gap: 12px; align-items: start; margin-bottom: 10px; padding: 10px; font-size: .9rem;
+             border-left: 4px solid var(--brand); background: var(--row); border-radius: 5px; transition: background .3s ease; }
+.events li:hover { background: var(--brand-soft); border-left-color: var(--brand-2); }
+.events .e-dot { width: 9px; height: 9px; border-radius: 50%; background: #adb5bd; margin-top: 7px; }
+.events .e-dot.bad { background: var(--bad); } .events .e-dot.warn { background: #f0ad4e; } .events .e-dot.info { background: var(--brand); }
+.events .e-when { color: var(--text-2); font-weight: 600; }
+.events .e-det { color: var(--muted); font-size: .82rem; }
+.events li.clickable { cursor: pointer; }
+
+/* anomaly details (side panel, as the D3.1 config sidebar) */
+.scrim { position: fixed; inset: 0; background: rgba(0,0,0,.5); opacity: 0; visibility: hidden; transition: opacity .3s ease, visibility .3s ease; z-index: 1040; }
+.scrim.open { opacity: 1; visibility: visible; }
+.drawer { position: fixed; top: 0; right: 0; height: 100vh; width: min(520px, 100vw); background: #fff; box-shadow: -4px 0 15px rgba(0,0,0,.1);
+          transform: translateX(105%); transition: transform .3s cubic-bezier(.4, 0, .2, 1); z-index: 1050; display: flex; flex-direction: column; }
+.drawer.open { transform: none; }
+.drawer .d-h { background: var(--brand); color: #fff; padding: 15px 20px; display: flex; align-items: center; gap: 12px; }
+.drawer .d-h .muted { color: #cfe9df; }
+.drawer .d-h h2 { margin: 0; font-size: 1.05rem; font-weight: 600; overflow-wrap: anywhere; }
+.drawer .d-b { overflow-y: auto; padding: 20px; display: grid; gap: 22px; align-content: start; }
+.drawer h3 { font-size: .95rem; font-weight: 600; color: var(--brand); margin: 0 0 10px; display: flex; gap: 8px; }
+.drawer h3 .right { margin-left: auto; font-weight: 400; color: var(--muted); font-size: 13px; }
+.iconbtn { background: rgba(255,255,255,.2); border: 0; color: #fff; font-size: 1.1rem; cursor: pointer; width: 30px; height: 30px; border-radius: 50%; flex: none; transition: background .2s; }
+.iconbtn:hover { background: rgba(255,255,255,.4); }
+.rows { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; font-size: 13.5px; margin: 0; }
+.rows dt { color: var(--text-2); font-weight: 600; } .rows dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.why { display: grid; gap: 8px; }
+.why .r { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; align-items: center; background: var(--row); border-left: 4px solid var(--line); border-radius: 5px; padding: 10px 12px; }
+.why .r.hit { border-left-color: var(--bad); } .why .r.ok { border-left-color: var(--brand); } .why .r.near { border-left-color: #f0ad4e; }
+.why .r .v { font-size: 15px; font-weight: 600; }
+.why .r .v small { color: var(--muted); font-weight: 400; }
+.why .r .desc { font-size: 12.5px; color: var(--muted); grid-column: 1; }
+.why .r .tag { grid-row: 1 / span 2; grid-column: 2; }
+.why .r .tag.good { background: var(--good-bg); }
+.spark { width: 100%; height: 90px; display: block; }
+.slegend { display: flex; gap: 14px; font-size: 12.5px; color: var(--text-2); margin-top: 6px; flex-wrap: wrap; }
+.slegend i { display: inline-block; width: 12px; height: 2px; vertical-align: middle; margin-right: 5px; }
+.loading { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13.5px; }
+
+/* configure page (label left, control right, as the D3.1 form rows) */
+.fgroup { display: grid; gap: 16px; }
+.fgroup.sub { border-top: 1px solid var(--line); padding-top: 16px; margin-top: 16px; }
+.fgroup .gtitle { font-weight: 600; color: var(--brand); }
+.field { display: grid; grid-template-columns: 40% 1fr; gap: 4px 16px; align-items: center; }
+.field label { color: var(--muted); font-weight: 700; font-size: 14px; }
+.field .hint { grid-column: 2; font-size: 12px; color: var(--muted); }
+.field.dirty label::after { content: " · changed"; color: var(--warn); font-weight: 600; }
+.field.err label::after { content: " · failed"; color: var(--bad); font-weight: 600; }
+.field.saved label::after { content: " · saved"; color: var(--good); font-weight: 600; }
+.inp { display: flex; border: 1px solid #ced4da; border-radius: 6px; background: #fff; min-width: 0; }
+.inp:focus-within { border-color: var(--brand-2); box-shadow: 0 0 0 .2rem rgba(0, 116, 81, .2); }
+.inp input, .inp select { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--text); padding: 8px 12px; font: inherit; outline: none; }
+.inp .unit { padding: 8px 12px; color: var(--muted); font-size: 13px; border-left: 1px solid #e9ecef; background: var(--row); border-radius: 0 6px 6px 0; }
+#setGeneral { display: grid; gap: 16px; }
+.savebar { position: fixed; left: 50%; bottom: 22px; transform: translate(-50%, 180%); transition: transform .2s; z-index: 1030;
+           background: #fff; border: 1px solid var(--line); border-left: 4px solid var(--brand); box-shadow: 0 4px 15px rgba(0,0,0,.2); border-radius: 5px;
+           padding: 10px 12px 10px 16px; display: flex; gap: 10px; align-items: center; font-weight: 600; }
+.savebar.show { transform: translate(-50%, 0); }
+.savebar:not(.show) { visibility: hidden; }
+.savebar .btn { padding: 7px 16px; }
+.toast { position: fixed; right: 22px; bottom: 22px; z-index: 1060; padding: 10px 14px; border-radius: 5px; background: var(--good-bg); color: #1e7e34; font-weight: 600;
+         border-left: 4px solid var(--good); box-shadow: 0 4px 15px rgba(0,0,0,.2); display: none; max-width: 420px; }
+.toast.bad { border-left-color: var(--bad); background: var(--bad-bg); color: var(--bad); }
+.banner { text-align: center; font-weight: 600; color: var(--bad); margin: 0 0 20px; padding: 10px; background: var(--bad-bg); border-radius: 5px; border-left: 4px solid var(--bad); display: none; }
+
+/* ---------- responsive ---------- */
+@media (max-width: 1250px) {
+    .grid { grid-template-columns: 1fr 1fr; } .grid > .rm { grid-column: 1 / -1; }
+    .metrics { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 860px) {
+    .layout { flex-direction: column; }
+    .side { width: 100%; height: auto; position: static; flex-direction: row; align-items: center; }
+    .side-logo { border-bottom: 0; padding: 10px 14px; } .side nav { display: flex; padding: 0; flex: 1; }
+    .side-item { padding: 12px 14px; font-size: 12px; flex: 1; }
+    .main-header { padding: 16px; } .main-header h1 { font-size: 1.25rem; } .content { padding: 16px; }
+    .grid, .grid.two, .status, .metrics { grid-template-columns: 1fr; }
+    .events li { grid-template-columns: 12px 1fr; } .events .e-txt { grid-column: 2; }
+    .alist li { grid-template-columns: 26px 1fr; } .alist .act { display: none; }
+    .field { grid-template-columns: 1fr; } .field .hint { grid-column: 1; }
+}
+</style>
+</head>
+<body>
+<div class="layout">
+    <!-- Sidebar -->
+    <aside class="side">
+        <div class="side-logo"><img src="/static/images/image_5027875_25968507_Logo.jpg" alt="Logo"></div>
+        <nav>
+            <a href="#health" class="side-item active" id="tab-health" onclick="showPage('health'); return false;"><i class="fas fa-chart-column"></i> Device Summary</a>
+            <a href="#settings" class="side-item" id="tab-settings" onclick="showPage('settings'); return false;"><i class="fas fa-server"></i> Configure Device Status</a>
+        </nav>
+    </aside>
+
+    <div class="main">
+        <header class="main-header">
+            <div>
+                <h1><i class="fas fa-shield-alt"></i> AI based Self healing Dashboard</h1>
+                <p>Experience uninterrupted connectivity with our intelligent AI based Self Healing system.</p>
+            </div>
+            <div class="who" id="sConn"><span class="dot"></span>Connecting…</div>
+        </header>
+
+        <main class="content">
+        <!-- ============================ DEVICE SUMMARY ============================ -->
+        <div id="page-health">
+            <div class="banner" id="banner"></div>
+
+            <div class="card">
+                <div class="card-header"><i class="fas fa-heartbeat"></i> <span id="hTitle">Self-Healing</span> Status <span class="right" id="hSub" style="font-weight:400;font-size:.9rem">connecting to the modem…</span></div>
+                <div class="card-b">
+                    <ul class="status">
+                        <li><i class="fas fa-heart-pulse"></i><span class="lbl">Self-heal</span><span class="n" id="stSh">—</span></li>
+                        <li><i class="fas fa-brain"></i><span class="lbl">Resource Monitoring</span><span class="n" id="stAd">—</span></li>
+                        <li><i class="fas fa-network-wired"></i><span class="lbl">Connectivity test</span><span class="n" id="stConn">—</span></li>
+                        <li><i class="fas fa-tachometer-alt"></i><span class="lbl">Throughput test</span><span class="n" id="stTput">—</span></li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="metrics">
+                <div class="metric-card"><i class="fas fa-microchip"></i><h5>System CPU Usage</h5><p id="gCpuV">Loading...</p>
+                    <div class="health-bar"><div class="health-bar-fill" id="gCpu"></div></div></div>
+                <div class="metric-card"><i class="fas fa-memory"></i><h5>System Memory Usage</h5><p id="gMemV">Loading...</p>
+                    <div class="health-bar"><div class="health-bar-fill" id="gMem"></div></div></div>
+                <div class="metric-card"><i class="fas fa-brain"></i><h5>Anomaly Detection Model</h5><p id="fModel">Loading...</p></div>
+                <div class="metric-card"><i class="fas fa-upload"></i><h5>Log Upload Server</h5><p id="fLog">Loading...</p></div>
+            </div>
+
+            <div class="actions">
+                <button class="btn" id="btnAdTest" onclick="startAdTest()" title="Starts a new process over the memory limit and waits for Anomaly Detection to report it (about 3 minutes)"><i class="fas fa-flask"></i> Trigger Anomaly Detection Test</button>
+                <button class="btn push" id="btnSpeed" onclick="runSpeedTest()"><i class="fas fa-play"></i> Run Speed Test</button>
+            </div>
+
+            <div class="grid">
+                <!-- Resource monitoring -->
+                <div class="card rm">
+                    <div class="card-header"><i class="fas fa-brain"></i> Resource Monitoring <span class="right tag" id="rmState">—</span></div>
+                    <div class="card-b">
+                        <div class="by" id="rmMeta">&nbsp;</div>
+                        <ul class="alist" id="aList"><li class="empty static">Loading…</li></ul>
+                        <button class="link" id="aMore" style="display:none;margin-top:2px" onclick="toggleAllAnomalies()"></button>
+                        <details class="more" id="rmMore"><summary>Top processes now</summary>
+                            <table class="tbl"><thead><tr><th>Process</th><th class="n">CPU %</th><th class="n">MEM %</th></tr></thead><tbody id="procBody"></tbody></table>
+                        </details>
+                        <div class="result" id="adResult"></div>
+                        <div class="log mono" id="adLog"></div>
+                    </div>
+                    <div class="card-f"><span><i class="fas fa-triangle-exclamation"></i><span id="fCount">0</span> anomalies</span>
+                        <span><i class="fas fa-tools"></i><span id="fKill">—</span></span>
+                        <span class="right" id="fNote"></span></div>
+                </div>
+
+                <!-- Connectivity -->
+                <div class="card">
+                    <div class="card-header"><i class="fas fa-network-wired"></i> Connectivity Test <span class="right tag" id="cState">—</span></div>
+                    <div class="card-b">
+                        <div class="by" id="cBy">&nbsp;</div>
+                        <div class="big" id="cBig">—</div>
+                        <div class="line" id="cBigSub">&nbsp;</div>
+                    </div>
+                    <div class="card-f"><span><i class="fas fa-sync-alt"></i><span id="cReb">—</span> reboots today</span>
+                        <span class="right" id="cAct"></span></div>
+                </div>
+
+                <!-- Throughput -->
+                <div class="card">
+                    <div class="card-header"><i class="fas fa-tachometer-alt"></i> Throughput Test <span class="right tag" id="tState">—</span></div>
+                    <div class="card-b">
+                        <div class="by" id="tBy">&nbsp;</div>
+                        <div class="big" id="tBig">—</div>
+                        <div class="chart-box small"><canvas id="tChart"></canvas></div>
+                        <div class="result" id="speedResult"></div>
+                    </div>
+                    <div class="card-f"><span><i class="fas fa-bolt"></i>threshold <span id="tThr">—</span> Mbps</span>
+                        <span class="right" id="tSrv"></span></div>
+                </div>
+            </div>
+
+            <div class="grid two">
+                <div class="card"><div class="card-header"><i class="fas fa-chart-line"></i> CPU Usage</div>
+                    <div class="card-b"><div class="chart-box"><canvas id="cpuChart"></canvas></div><div class="cstats" id="cpuStats"></div></div></div>
+                <div class="card"><div class="card-header"><i class="fas fa-chart-line"></i> Memory Usage</div>
+                    <div class="card-b"><div class="chart-box"><canvas id="memChart"></canvas></div><div class="cstats" id="memStats"></div></div></div>
+            </div>
+
+            <div class="card">
+                <div class="card-header"><i class="fas fa-history"></i> Self-Healing Events <span class="right chips" id="chips">
+                    <button class="chip active" data-f="all">All</button>
+                    <button class="chip" data-f="resource">Resource</button>
+                    <button class="chip" data-f="connectivity">Connectivity</button>
+                    <button class="chip" data-f="throughput">Throughput</button></span></div>
+                <div class="card-b">
+                    <ul class="events" id="events"><li class="empty">Loading…</li></ul>
+                    <button class="link" id="evMore" style="display:none" onclick="toggleAllEvents()"></button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============================ CONFIGURE ============================ -->
+        <div id="page-settings" style="display:none">
+            <div class="grid two">
+                <div class="card"><div class="card-header"><i class="fas fa-sliders"></i> Configure Self-Healing Parameters</div>
+                    <div class="card-b"><div id="setGeneral"></div></div></div>
+                <div class="card"><div class="card-header"><i class="fas fa-brain"></i> Resource Monitoring (Anomaly Detection)</div>
+                    <div class="card-b"><div id="setRm"></div></div></div>
+                <div class="card"><div class="card-header"><i class="fas fa-network-wired"></i> Connectivity Test</div>
+                    <div class="card-b"><div id="setConn"></div></div></div>
+                <div class="card"><div class="card-header"><i class="fas fa-tachometer-alt"></i> Throughput Test</div>
+                    <div class="card-b"><div id="setTput"></div></div></div>
+            </div>
+            <p class="muted" style="font-size:13px;margin:0">Change any fields, then Save.</p>
+        </div>
+        </main>
+    </div>
+</div>
+
+<div class="savebar" id="savebar"><span id="saveTxt">Unsaved changes</span>
+    <button class="btn light" onclick="discardChanges()">Discard</button>
+    <button class="btn" id="saveBtn" onclick="saveChanges()"><i class="fas fa-check"></i> Save</button></div>
+<div class="toast" id="toast"></div>
+
+<div class="modal" id="modal" role="dialog" aria-modal="true">
+    <div class="modal-box">
+        <div class="modal-h"><i class="fas fa-triangle-exclamation"></i> <span id="modalTitle">Please confirm</span></div>
+        <div class="modal-b" id="modalText"></div>
+        <div class="modal-f"><button class="btn light" id="modalNo">Cancel</button><button class="btn" id="modalYes">Save</button></div>
+    </div>
+</div>
+
+<div class="scrim" id="scrim" onclick="closeDrawer()"></div>
+<aside class="drawer" id="drawer" aria-hidden="true">
+    <div class="d-h"><div style="flex:1;min-width:0"><div class="muted" style="font-size:12.5px">Anomaly</div><h2 id="dTitle">—</h2></div>
+        <button class="iconbtn" onclick="closeDrawer()" title="Close"><i class="fas fa-xmark"></i></button></div>
+    <div class="d-b" id="dBody"></div>
+</aside>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/luxon@3.4.3/build/global/luxon.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.umd.js"></script>
+<script>
+// ======================================================================
+// helpers
+// ======================================================================
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const num = v => { const n = parseFloat(v); return isNaN(n) ? null : n; };
+const on = v => v === '1';
+const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const plural = (n, w) => `${n} ${n === 1 ? w : (w.endsWith('y') ? w.slice(0, -1) + 'ies' : w + 's')}`;
+const mins = v => { const n = parseInt(v, 10); if (isNaN(n)) return '—'; return n >= 60 && n % 60 === 0 ? `every ${plural(n / 60, 'hour')}` : `every ${plural(n, 'minute')}`; };
+// the modem keeps UTC; times are shown in this PC's time zone
+const toMs = ts => Date.parse(String(ts).replace(' ', 'T') + 'Z');
+const hm = (ts, sec) => { const d = new Date(toMs(ts)); return isNaN(d) ? String(ts).slice(11, sec ? 19 : 16) : d.toTimeString().slice(0, sec ? 8 : 5); };
+const fullTs = ts => { const d = new Date(toMs(ts)); if (isNaN(d)) return ts; const p = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${d.toTimeString().slice(0, 8)}`; };
+// log upload that belongs to an anomaly: same resource, finished within 3 minutes after it
+const AD_RES = { AD_CPU_ANOMALY: 'CPU', AD_MEM_ANOMALY: 'MEM', AD_CPU_MEM_ANOMALY: 'CPU+MEM' };
+const uploadFits = (u, a) => { const dt = toMs(u.timestamp) - toMs(a.timestamp);
+    return /^AD_/.test(u.trigger) && dt >= -10000 && dt <= 180000 && (!AD_RES[u.trigger] || !a.resource || AD_RES[u.trigger] === a.resource); };
+const anomalyText = a => `Anomaly: abnormal ${a.resource === 'CPU' ? 'CPU' : a.resource === 'MEM' ? 'memory' : a.resource === 'CPU+MEM' ? 'CPU and memory' : 'resource'} usage`;
+// the modem's clock starts at 1970 after a reboot until it gets the time of day
+const noClock = ts => { const d = new Date(toMs(ts)); return !isNaN(d) && d.getFullYear() < 2000; };
+const shortTs = ts => { const d = new Date(toMs(ts)); if (isNaN(d)) return ts; if (noClock(ts)) return 'At boot';
+    const today = new Date(); const same = d.toDateString() === today.toDateString();
+    return same ? d.toTimeString().slice(0, 5) : d.toLocaleDateString([], { day: '2-digit', month: 'short' }) + ' ' + d.toTimeString().slice(0, 5); };
+function toast(ok, msg) { const t = $('toast'); t.className = 'toast ' + (ok ? 'ok' : 'bad'); t.textContent = msg; t.style.display = 'block';
+    clearTimeout(toast.t); toast.t = setTimeout(() => t.style.display = 'none', 4500); }
+
+let STATE = null;
+
+// ======================================================================
+// vocabulary
+// ======================================================================
+const TRIG = {
+    PING_FAILED:            { cat: 'connectivity', text: 'Connectivity test failed' },
+    THROUGHPUT_TEST_FAILED: { cat: 'throughput',   text: 'Throughput below the threshold' },
+    AD_MEM_ANOMALY:         { cat: 'resource',     text: 'Anomaly: abnormal memory usage' },
+    AD_CPU_ANOMALY:         { cat: 'resource',     text: 'Anomaly: abnormal CPU usage' },
+    AD_CPU_MEM_ANOMALY:     { cat: 'resource',     text: 'Anomaly: abnormal CPU and memory usage' },
+    AD_ANOMALY:             { cat: 'resource',     text: 'Anomaly: abnormal resource usage' },
+    RETRY:                  { cat: 'other',        text: 'Retry of pending logs' },
+};
+const UPLOAD = {
+    SUCCESS: 'logs uploaded to the TFTP server', PARTIAL: 'logs partly uploaded', FAILED: 'log upload failed',
+    NO_TFTP_CLIENT: 'no TFTP client on the modem', RETAINED_NO_SERVER: 'logs kept on the modem (no log server set)',
+};
+const ACTION = {
+    killed: ['Killed by AD', 'bad'], kill_failed: ['Kill failed', 'warn'], protected: ['Protected – not killed', ''],
+    disabled: ['Detected only', ''], exited: ['Process had exited', ''], none: ['Detected only', ''], '': ['Detected', ''],
+};
+const trig = t => TRIG[t] || { cat: 'resource', text: t };
+
+// ======================================================================
+// charts (Chart.js from CDN; the page works without it)
+// ======================================================================
+const HAS_CHART = typeof Chart !== 'undefined';
+let cpuChart = null, memChart = null, tChart = null;
+// D3.1 chart details: legend on top, titled axes, grid on both axes, tooltips
+function chartOpts(unit, max, yTitle) {
+    const bold = size => ({ family: 'Poppins', size, weight: 'bold' });
+    return {
+        responsive: true, maintainAspectRatio: false, animation: { duration: 600, easing: 'easeOutQuart' },
+        interaction: { mode: 'index', intersect: false },
+        scales: {
+            x: { type: 'time', time: { unit: 'minute', displayFormats: { minute: 'HH:mm' }, tooltipFormat: 'HH:mm:ss' },
+                 title: { display: true, text: 'Time (last 10 minutes)', font: bold(13), color: '#333333' },
+                 grid: { color: '#e0e0e0' }, ticks: { color: '#555555', maxTicksLimit: 8, font: { family: 'Poppins' } } },
+            y: { beginAtZero: true, max,
+                 title: { display: true, text: yTitle, font: bold(13), color: '#333333' },
+                 grid: { color: '#e0e0e0' }, ticks: { color: '#555555', maxTicksLimit: 6, callback: v => v + unit, font: { family: 'Poppins' } } },
+        },
+        plugins: { legend: { position: 'top', labels: { font: bold(12), color: '#333333', usePointStyle: false, boxWidth: 28 } },
+                   tooltip: { enabled: true, callbacks: { label: c => ` ${c.dataset.label}: ${c.parsed.y}${c.dataset.unit ?? unit}` } } },
+        elements: { point: { radius: 0, hoverRadius: 5 }, line: { borderWidth: 2, tension: .4 } },
+    };
+}
+
+function chartStats(id, pts, unit) {
+    const el = $(id); if (!el) return;
+    const ys = (pts || []).map(p => Number(p.y)).filter(y => !isNaN(y));
+    if (!ys.length) { el.textContent = 'No data yet'; return; }
+    const r = n => Math.round(n * 10) / 10, avg = ys.reduce((a, b) => a + b, 0) / ys.length;
+    el.innerHTML = `<span>Now <b>${r(ys[ys.length - 1])}${unit}</b></span><span>Average <b>${r(avg)}${unit}</b></span>` +
+                   `<span>Lowest <b>${r(Math.min(...ys))}${unit}</b></span><span>Highest <b>${r(Math.max(...ys))}${unit}</b></span><span>${ys.length} samples</span>`;
+}
+
+function initCharts() {
+    if (!HAS_CHART) {
+        ['cpuChart', 'memChart', 'tChart'].forEach(id => $(id).parentElement.innerHTML = '<div class="nochart">Charts need internet access (Chart.js is loaded from a CDN).</div>');
+        return;
+    }
+    // one green line per chart, red dashed threshold: the D3.1 chart style
+    const series = (label, extra) => Object.assign({ label, data: [], borderColor: css('--green'), backgroundColor: css('--green-fill'), fill: 'origin' }, extra || {});
+    cpuChart = new Chart($('cpuChart'), { type: 'line', data: { datasets: [series('CPU Usage (%)')] }, options: chartOpts('%', 100, 'CPU Usage (%)') });
+    memChart = new Chart($('memChart'), { type: 'line', data: { datasets: [series('Memory Usage (%)')] }, options: chartOpts('%', 100, 'Memory Usage (%)') });
+    tChart = new Chart($('tChart'), { type: 'line', data: { datasets: [
+        series('Throughput (Mbps)', { pointRadius: 3, pointBackgroundColor: css('--green') }),
+        { label: 'Threshold', data: [], borderColor: '#dc3545', borderDash: [5, 5], borderWidth: 1.5, fill: false } ] },
+        options: chartOpts(' Mbps', undefined, 'Throughput (Mbps)') });
+}
+let LAST_TP = null;   // latest result the poller logged (fallback for the Throughput card)
+async function updateCharts() {
+    if (!cpuChart) return;
+    try {
+        const d = await (await fetch('/api/usage')).json();
+        cpuChart.data.datasets[0].data = d.cpu || []; cpuChart.update(); chartStats('cpuStats', d.cpu, '%');
+        memChart.data.datasets[0].data = d.memory || []; memChart.update(); chartStats('memStats', d.memory, '%');
+        const tp = (d.throughput || []).filter(p => Number(p.y) > 0);   // 0 = no speed-test result yet
+        tChart.data.datasets[0].data = tp;
+        LAST_TP = tp.length ? Number(tp[tp.length - 1].y) : null;
+        if (STATE && STATE.ok) renderTput(STATE);
+        tChart.data.datasets[1].data = (d.speedtest_threshold != null && tp.length) ? [{ x: tp[0].x, y: d.speedtest_threshold }, { x: tp[tp.length - 1].x, y: d.speedtest_threshold }] : [];
+        tChart.update();
+    } catch (e) {}
+}
+
+// ======================================================================
+// health page
+// ======================================================================
+function setTag(id, cls, text) { const b = $(id); b.className = 'right tag ' + (cls || ''); b.textContent = text; }
+const onOff = (id, v, extra) => { $(id).innerHTML = `<span class="${v ? 'on' : 'off'}">${v ? 'on' : 'off'}</span>${extra ? ' · ' + extra : ''}`; };
+
+function meter(id, value) {
+    $(id + 'V').textContent = value == null ? '—' : value + '%';
+    $(id).style.width = Math.max(0, Math.min(100, value || 0)) + '%';
+}
+
+function renderHero(s) {
+    const v = s.values, sh = on(v.tinnoSelfhealEnable), srv = (v.tinnoLogUploadServer || '').trim();
+    $('sConn').innerHTML = `<span class="dot good"></span>${esc(s.host)}`;
+    $('hTitle').textContent = 'Self-Healing';
+    $('hSub').textContent = `eMTA ${s.host}`;
+    const ms = (v.tinnoADModelStatus || '').trim(), md = (v.tinnoADModelDays || '').trim();
+    $('fModel').textContent = ms === 'trained' ? `trained · ${md} days` : ms === 'bootstrapping' ? `learning · ${md} day` : (v.tinnoADModelStatus == null ? 'not reported' : '—');
+    $('fLog').innerHTML = srv ? esc(srv) : '<span style="color:var(--warn)">kept on modem</span>';
+    onOff('stSh', sh);
+    onOff('stAd', on(v.tinnoADEnable), on(v.tinnoADCorrectiveActionEnable) ? '<span style="color:var(--bad)">kills</span>' : '');
+    onOff('stConn', on(v.tinnoSHConnTestEnable), on(v.tinnoSHConnTestEnable) ? esc(mins(v.tinnoConnTestPingInterval)) : '');
+    onOff('stTput', on(v.tinnoSHSpeedTestEnable), on(v.tinnoSHSpeedTestEnable) ? (on(v.tinnoSHIsLowThroughput) ? '<span style="color:var(--bad)">low throughput</span>' : esc(mins(v.tinnoSHSpeedTestInterval))) : '');
+    meter('gCpu', num(v.tinnoLiveCPUStat));
+    meter('gMem', num(v.tinnoLiveMemoryStat));
+}
+
+let SHOW_ALL_ANOMALIES = false;
+function toggleAllAnomalies() { SHOW_ALL_ANOMALIES = !SHOW_ALL_ANOMALIES; if (STATE) renderRM(STATE); }
+
+// Anomalies: tinnoADAnomalyHistory (patch 1048). On firmware without it, the
+// AD entries of the log-upload history stand in (not clickable).
+function anomalyRows(s) {
+    if (s.ad_history_mib || (s.ad_history || []).length) {
+        return (s.ad_history || []).map((a, i) => ({ ...a, idx: i }));
+    }
+    return (s.upload_history || []).filter(u => /^AD_/.test(u.trigger)).reverse().map(u => ({
+        timestamp: u.timestamp, cmd: 'process details need firmware with patch 1048',
+        resource: u.trigger === 'AD_CPU_ANOMALY' ? 'CPU' : u.trigger === 'AD_MEM_ANOMALY' ? 'MEM' : 'CPU+MEM', action: '', idx: null }));
+}
+
+function renderRM(s) {
+    const v = s.values, adOn = on(v.tinnoADEnable), kill = on(v.tinnoADCorrectiveActionEnable);
+    setTag('rmState', adOn ? 'good' : '', adOn ? 'AD on' : 'AD off');
+    $('rmMeta').textContent = adOn ? 'Anomaly Detection watches every process on the modem.' : 'Anomaly Detection is off.';
+    const rows = anomalyRows(s);
+    const shown = SHOW_ALL_ANOMALIES ? rows : rows.slice(0, 5);
+    $('aList').innerHTML = shown.length ? shown.map(a => {
+        const [act, cls] = ACTION[a.action] || [a.action, ''];
+        const ic = a.action === 'killed' ? 'bad' : (a.resource === 'CPU' ? 'cpu' : 'mem');
+        const icon = a.resource === 'CPU' ? 'fa-microchip' : 'fa-memory';
+        const val = a.cpu == null ? (a.resource === 'CPU' ? 'CPU' : a.resource === 'MEM' ? 'Memory' : 'CPU + memory')
+                  : a.resource === 'CPU' ? `CPU ${a.cpu}%` : a.resource === 'MEM' ? `Memory ${a.mem}%` : `CPU ${a.cpu}% · Memory ${a.mem}%`;
+        const click = a.idx != null ? `tabindex="0" onclick="openAnomaly(${a.idx})" onkeydown="if(event.key==='Enter')openAnomaly(${a.idx})"` : '';
+        return `<li class="${a.idx == null ? 'static' : ''}" ${click}>
+            <span class="ic ${ic}"><i class="fas ${icon}"></i></span>
+            <span class="what"><span class="cmd ${a.idx == null ? 'muted' : 'mono'}" title="${esc(a.cmd)}">${esc(a.cmd)}</span>
+                <span class="when">${esc(shortTs(a.timestamp))} · ${esc(val)}</span></span>
+            <span class="act ${cls}">${esc(act)}</span></li>`;
+    }).join('') : `<li class="empty static">${adOn ? 'No anomalies — every process is within its normal range.' : 'Anomaly Detection is off.'}</li>`;
+    $('aMore').style.display = rows.length > 5 ? '' : 'none';
+    $('aMore').textContent = SHOW_ALL_ANOMALIES ? 'Show fewer' : `Show all ${rows.length}`;
+    $('fCount').textContent = v.tinnoADAnomalyCount ?? '0';
+    $('fKill').textContent = kill ? 'kills new processes' : 'detect and report';
+    $('fKill').style.color = kill ? 'var(--bad)' : '';
+    $('fNote').textContent = `new-process limits ${v.tinnoADNewProcCPUThreshold ?? '—'}% CPU · ${v.tinnoADNewProcMemThreshold ?? '—'}% mem`;
+    const procs = s.ad_top_processes || [];
+    $('procBody').innerHTML = procs.map(p => `<tr><td class="mono">${esc(p.cmd)} <span class="muted">${p.pid}</span></td><td class="n">${p.cpu.toFixed(1)}</td><td class="n">${p.mem.toFixed(1)}</td></tr>`).join('')
+        || '<tr><td colspan="3" class="muted">Not reported</td></tr>';
+}
+
+function lastOf(list, pred) { for (let i = list.length - 1; i >= 0; i--) if (pred(list[i])) return list[i]; return null; }
+
+function renderConn(s) {
+    const v = s.values, en = on(v.tinnoSHConnTestEnable);
+    setTag('cState', en ? 'good' : '', en ? 'On' : 'Off');
+    $('cBy').textContent = `Pings ${v.tinnoIPv4PingServer || '—'} ${mins(v.tinnoConnTestPingInterval)}`;
+    const all = [...(s.reboot_history || []), ...(s.upload_history || [])].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+    const fail = lastOf(all, e => e.trigger === 'PING_FAILED');
+    const windowMs = Math.max(2 * (parseInt(v.tinnoConnTestPingInterval, 10) || 5), 15) * 60000;
+    const recent = fail && (Date.now() - toMs(fail.timestamp)) < windowMs;
+    $('cBig').className = 'big ' + (!en ? '' : (recent ? 'warn' : 'good'));
+    $('cBig').textContent = !en ? 'Not running' : (recent ? 'Failed recently' : 'Reachable');
+    $('cBigSub').textContent = fail ? `Last failure ${shortTs(fail.timestamp)}` : 'No failures recorded';
+    $('cReb').textContent = `${v.tinno24HrConnRebootCount ?? '—'} of ${v.tinnoMaxConnRebootCount ?? '—'}`;
+    $('cAct').textContent = on(v.tinnoConnTestCorrectiveAction) ? 'reboots on failure' : 'logs only on failure';
+}
+
+function renderTput(s) {
+    const v = s.values, en = on(v.tinnoSHSpeedTestEnable), low = on(v.tinnoSHIsLowThroughput);
+    setTag('tState', en ? (low ? 'bad' : 'good') : '', en ? (low ? 'Low throughput' : 'On') : 'Off');
+    $('tBy').textContent = v.tinnoSpeedtestUrl ? `Speed test ${mins(v.tinnoSHSpeedTestInterval)}` : 'No speed test server set';
+    const tp = num(v.tinnoSpeedtestthroughput) || LAST_TP, thr = num(v.tinnoSHSpeedTestThreshold);
+    $('tBig').className = 'big ' + (tp && thr && tp < thr ? 'bad' : '');
+    $('tBig').innerHTML = tp ? `${tp} <small>Mbps</small>` : '<small>No result yet</small>';
+    $('tThr').textContent = thr ?? '—';
+    $('tSrv').textContent = v.tinnoSpeedtestUrl ? `${v.tinnoSpeedtestUrl}:${v.tinnoSpeedtestServerPort}` : '';
+    $('btnSpeed').disabled = !v.tinnoSpeedtestUrl || speedRunning;
+    $('btnSpeed').title = v.tinnoSpeedtestUrl ? '' : 'Set a speed test server under Configure Device Status first';
+}
+
+// One timeline: reboots, uploads (AD uploads get the anomaly's process) and anomalies.
+// self-heal resource monitoring is not part of this dashboard
+const SH_RM = /^(MEM_THRESHOLD|CPU_THRESHOLD|DS_MANAGER_HIGH_CPU|SNMP_AGENT_CM_HIGH_CPU)/;
+function buildEvents(s) {
+    const ev = [];
+    const ups = (s.upload_history || []).filter(u => !SH_RM.test(u.trigger)).map(u => ({ ...u, used: false }));
+    const near = (a, b, ms) => Math.abs(toMs(a) - toMs(b)) <= ms;
+    (s.reboot_history || []).filter(rb => !SH_RM.test(rb.trigger)).forEach(rb => {
+        const m = ups.filter(u => !u.used && u.trigger === rb.trigger && near(u.timestamp, rb.timestamp, 600000))
+                     .sort((x, y) => Math.abs(toMs(x.timestamp) - toMs(rb.timestamp)) - Math.abs(toMs(y.timestamp) - toMs(rb.timestamp)))[0];
+        if (m) m.used = true;
+        ev.push({ ts: rb.timestamp, cat: trig(rb.trigger).cat, cls: 'bad',
+                  text: `${trig(rb.trigger).text}, modem rebooted`, det: m ? cap(UPLOAD[m.status] || m.status) : '' });
+    });
+    const anomalies = (s.ad_history || []).map((a, i) => ({ ...a, i, used: false }));
+    ups.filter(u => !u.used).forEach(u => {
+        const t = trig(u.trigger), ad = /^AD_/.test(u.trigger);
+        let det = cap(UPLOAD[u.status] || u.status), idx = null, text = t.text, ts = u.timestamp;
+        if (ad) {
+            const a = anomalies.filter(x => !x.used && uploadFits(u, x))
+                               .sort((x, y) => toMs(y.timestamp) - toMs(x.timestamp))[0];   // the latest anomaly before the upload
+            if (a) { a.used = true; idx = a.i; det = `${a.cmd} · ${det}`; text = anomalyText(a); ts = a.timestamp; }
+        }
+        ev.push({ ts, cat: t.cat, cls: u.trigger === 'RETRY' ? '' : (ad ? 'warn' : 'info'), text, det, idx });
+    });
+    anomalies.filter(a => !a.used).forEach(a => ev.push({ ts: a.timestamp, cat: 'resource', cls: 'warn',
+        text: anomalyText(a),
+        det: `${a.cmd} · no log upload (uploads are rate-limited)`, idx: a.i }));
+    return ev.sort((a, b) => String(b.ts).localeCompare(String(a.ts)));
+}
+const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+function eventsHtml(list, empty) {
+    return list.length ? list.map(e => `<li class="${e.idx != null ? 'clickable' : ''}" ${e.idx != null ? `onclick="openAnomaly(${e.idx})"` : ''}>
+        <span class="e-dot ${e.cls}"></span>
+        <span class="e-when">${esc(shortTs(e.ts))}</span>
+        <div class="e-txt"><span>${esc(e.text)}</span>${e.det ? `<div class="e-det">${esc(e.det)}</div>` : ''}</div></li>`).join('')
+        : `<li class="empty">${esc(empty)}</li>`;
+}
+let EVFILTER = 'all', SHOW_ALL_EVENTS = false;
+function toggleAllEvents() { SHOW_ALL_EVENTS = !SHOW_ALL_EVENTS; if (STATE) renderEvents(STATE); }
+function renderEvents(s) {
+    const all = buildEvents(s).filter(e => EVFILTER === 'all' || e.cat === EVFILTER);
+    $('events').innerHTML = eventsHtml(SHOW_ALL_EVENTS ? all : all.slice(0, 6), 'Nothing recorded yet.');
+    $('evMore').style.display = all.length > 6 ? '' : 'none';
+    $('evMore').textContent = SHOW_ALL_EVENTS ? 'Show fewer' : `Show all ${all.length}`;
+}
+$('chips').addEventListener('click', e => {
+    const b = e.target.closest('.chip'); if (!b) return;
+    EVFILTER = b.dataset.f; document.querySelectorAll('.chip').forEach(c => c.classList.toggle('active', c === b));
+    if (STATE) renderEvents(STATE);
+});
+
+async function fetchState() {
+    try {
+        const s = await (await fetch('/api/state')).json();
+        if (!s.ok) {
+            $('sConn').innerHTML = `<span class="dot bad"></span>${esc(s.host)} not answering`;
+            $('banner').style.display = 'block';
+            $('banner').textContent = `The modem at ${s.host} does not answer SNMP (${s.error}). Showing the last known state.`;
+            return;
+        }
+        $('banner').style.display = 'none';
+        STATE = s;
+        renderHero(s); renderRM(s); renderConn(s); renderTput(s); renderEvents(s);
+        fillSettings(s.values);
+    } catch (e) { $('sConn').innerHTML = '<span class="dot bad"></span>Dashboard server not reachable'; }
+}
+
+// ======================================================================
+// anomaly details drawer
+// ======================================================================
+function openAnomaly(i) {
+    const a = STATE && STATE.ad_history[i]; if (!a) return;
+    $('dTitle').textContent = `${noClock(a.timestamp) ? 'At boot (modem clock not set yet)' : fullTs(a.timestamp)} · PID ${a.pid}`;
+    const [act, cls] = ACTION[a.action] || [a.action, ''];
+    const up = (STATE.upload_history || []).filter(u => uploadFits(u, a)).sort((x, y) => toMs(x.timestamp) - toMs(y.timestamp))[0];
+    $('dBody').innerHTML = `
+        <div class="section"><dl class="rows">
+            <dt>Process</dt><dd class="mono">${esc(a.cmd)}</dd>
+            <dt>Resource</dt><dd>${esc(a.resource || '—')}</dd>
+            <dt>At detection</dt><dd>CPU ${a.cpu ?? '—'}% · MEM ${a.mem ?? '—'}%</dd>
+            <dt>Action</dt><dd style="${cls ? 'color:var(--' + cls + ')' : ''}">${esc(act)}</dd>
+            <dt>Log upload</dt><dd>${up ? esc(cap(UPLOAD[up.status] || up.status)) + ` <span class="muted">(${esc(hm(up.timestamp, true))})</span>` : '<span class="muted">none recorded (uploads are limited to one per 5 min, one per 30 min per process)</span>'}</dd>
+        </dl></div>
+        <div id="dReport" style="display:grid;gap:22px"><div class="section"><div class="loading"><i class="fas fa-spinner fa-spin"></i> Reading the detailed report from the modem (over SSH, ~10 s)…</div></div></div>`;
+    $('drawer').classList.add('open'); $('scrim').classList.add('open'); $('drawer').setAttribute('aria-hidden', 'false');
+    loadReport(a);
+}
+function closeDrawer() { $('drawer').classList.remove('open'); $('scrim').classList.remove('open'); $('drawer').setAttribute('aria-hidden', 'true'); }
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
+
+async function loadReport(a) {
+    const box = $('dReport');
+    try {
+        const r = await (await fetch(`/api/anomaly_report?ts=${encodeURIComponent(a.timestamp)}&pid=${a.pid}`)).json();
+        if (!r.ok) { box.innerHTML = `<div class="section"><div class="empty"><i class="fas fa-circle-info"></i> ${esc(r.error)}</div></div>`; return; }
+        box.innerHTML = reportHtml(r, a);
+    } catch (e) { box.innerHTML = `<div class="section"><div class="empty">Could not load the report.</div></div>`; }
+}
+
+function reportHtml(r, a) {
+    const known = /known/i.test(r.detection_type);
+    const LIMIT_NAME = { tinnoADNewProcCPUThreshold: 'new-process CPU limit', tinnoADNewProcMemThreshold: 'new-process memory limit' };
+    const rules = r.rules.map(x => {
+        const hit = x.count >= x.needed, over = x.value > x.limit;
+        const cls = hit ? 'bad' : (over ? 'warn' : 'good');
+        const rcls = hit ? 'hit' : (over ? 'near' : 'ok');
+        const verdict = hit ? 'Anomaly' : (over ? 'Over limit' : 'Normal');
+        const name = x.resource === 'CPU' ? 'CPU' : 'Memory';
+        const base = x.baseline != null ? `learned baseline ${x.baseline}% · ` : '';
+        return `<div class="r ${rcls}"><div class="v">${name} ${x.value}% <small>limit ${x.limit}%</small></div>
+            <div class="desc">${esc(base)}${esc(LIMIT_NAME[x.limit_desc] || x.limit_desc)} · over the limit ${x.count} of ${x.needed} samples in a row</div>
+            <span class="tag ${cls}">${verdict}</span></div>`;
+    }).join('');
+    const notes = r.notes.map(n => `<div class="muted" style="font-size:12.5px;margin-top:6px">${esc(n)}</div>`).join('');
+    const KEEP = { State: 'State', VmRSS: 'Memory (RSS)', Threads: 'Threads', OpenFDs: 'Open files', Parent: 'Parent', Running: 'Running for' };
+    const procLines = r.process.filter(l => KEEP[l.split(':')[0].trim()] || !l.includes(':'));
+    const proc = procLines.length ? `<dl class="rows">${procLines.map(l => { const i = l.indexOf(':');
+        return i > 0 ? `<dt>${esc(KEEP[l.slice(0, i).trim()])}</dt><dd>${esc(l.slice(i + 1).trim())}</dd>` : `<dt></dt><dd>${esc(l)}</dd>`; }).join('')}</dl>` : '<div class="empty">Not captured.</div>';
+    return `
+        <div class="section"><h3>Why it was flagged</h3>
+            <div class="muted" style="margin-bottom:8px">${esc(known ? 'Known process — compared with the baseline the model learned for it.' : 'New process — no learned baseline yet, so the fixed new-process limits apply.')}</div>
+            <div class="why">${rules}</div>${notes}</div>
+        <div class="section"><h3>Usage before detection <span class="right">1 sample per minute</span></h3>${sparkSvg(r.samples, r.rules)}</div>
+        <div class="section"><h3>Process at detection</h3>${proc}</div>
+        <div class="section"><details><summary class="muted" style="font-size:12.5px"><i class="fas fa-file-lines"></i> Full report text (as in the log upload)</summary>
+            <pre class="log mono" style="max-height:320px">${esc(r.raw)}</pre></details>
+            </div>`;
+}
+
+function sparkSvg(samples, rules) {
+    if (!samples || samples.length < 2) return '<div class="empty">No samples in the report.</div>';
+    const W = 520, H = 90, P = 4;
+    const lim = {}; (rules || []).forEach(x => { if (x.count > 0 || x.value > x.limit) lim[x.resource] = x.limit; });
+    const max = Math.max(1, ...samples.map(s => Math.max(s.cpu, s.mem)), lim.CPU || 0, lim.MEM || 0) * 1.15;
+    const X = i => P + (W - 2 * P) * i / (samples.length - 1), Y = v => H - P - (H - 2 * P) * v / max;
+    const line = k => samples.map((s, i) => `${i ? 'L' : 'M'}${X(i).toFixed(1)},${Y(s[k]).toFixed(1)}`).join('');
+    const limLine = (k, color) => lim[k] != null && lim[k] < max ? `<line x1="${P}" x2="${W - P}" y1="${Y(lim[k])}" y2="${Y(lim[k])}" stroke="${color}" stroke-width="1" stroke-dasharray="4 4" opacity=".7"/>` : '';
+    return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="CPU and memory before detection">
+        ${limLine('CPU', 'var(--green)')}${limLine('MEM', 'var(--series2)')}
+        <path d="${line('cpu')}" fill="none" stroke="var(--green)" stroke-width="2" vector-effect="non-scaling-stroke"/>
+        <path d="${line('mem')}" fill="none" stroke="var(--series2)" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>
+        <div class="slegend"><span><i style="background:var(--green)"></i>CPU ${samples[samples.length - 1].cpu}%</span>
+        <span><i style="background:var(--series2)"></i>Memory ${samples[samples.length - 1].mem}%</span>
+        <span class="muted">dashed = limit · ${esc(hm(samples[0].t))}–${esc(hm(samples[samples.length - 1].t))}</span></div>`;
+}
+
+// ======================================================================
+// AD test and speed test
+// ======================================================================
+let adTimer = null;
+async function startAdTest() {
+    const d = await (await fetch('/api/test/anomaly', { method: 'POST' })).json();
+    if (d.status !== 'started') { toast(false, d.error || 'Could not start the test.'); return; }
+    pollAdTest();
+}
+async function pollAdTest() {
+    clearTimeout(adTimer);
+    try {
+        const t = await (await fetch('/api/test/status')).json();
+        if (t.test) {
+            $('adLog').textContent = (t.log || []).map(l => `${l.t}  ${l.msg}`).join('\n');
+            $('adLog').scrollTop = $('adLog').scrollHeight;
+            $('adResult').className = 'result ' + (t.running ? '' : (t.ok ? 'ok' : 'bad'));
+            $('adResult').textContent = t.running ? '' : (t.result || '');
+        }
+        $('btnAdTest').disabled = !!t.running;
+        $('btnAdTest').innerHTML = t.running ? '<i class="fas fa-spinner fa-spin"></i> AD test running…' : '<i class="fas fa-flask"></i> Trigger Anomaly Detection Test';
+        if (t.running) adTimer = setTimeout(pollAdTest, 2000); else if (t.test) fetchState();
+    } catch (e) { adTimer = setTimeout(pollAdTest, 5000); }
+}
+
+let speedRunning = false;
+async function runSpeedTest() {
+    const r = await (await fetch('/api/speedtest', { method: 'POST' })).json();
+    if (r.status !== 'started') { toast(false, 'Could not start the speed test: ' + (r.error || '')); return; }
+    speedRunning = true; $('btnSpeed').disabled = true;
+    $('speedResult').className = 'result'; $('speedResult').innerHTML = '<i class="fas fa-spinner fa-spin"></i> Running…';
+    const t0 = Date.now();
+    const poll = async () => {
+        const s = await (await fetch('/api/speedtest/status')).json();
+        const st = (s.tinnoSpeedTestStatus || '').toUpperCase();
+        const busy = s.tinnoSpeedtestStart === '1' || /RUN|PROGRESS|START/.test(st);
+        if (busy && Date.now() - t0 < 180000) { $('speedResult').innerHTML = `<i class="fas fa-spinner fa-spin"></i> ${esc(s.tinnoSpeedTestStatus || 'Running')}…`; setTimeout(poll, 3000); return; }
+        speedRunning = false; $('btnSpeed').disabled = false;
+        const mbps = parseFloat(s.tinnoSpeedtestthroughput);
+        const ok = /COMPLETE|SUCCESS|DONE/.test(st) && mbps > 0;
+        $('speedResult').className = 'result ' + (ok ? 'ok' : 'bad');
+        $('speedResult').textContent = ok ? `Result: ${mbps} Mbps` : `Speed test failed: ${st === 'SERVER_UNREACHABLE' ? 'the speed test server did not answer' : (s.tinnoSpeedTestStatus || 'no result')}`;
+        fetchState();
+    };
+    setTimeout(poll, 3000);
+}
+
+// ======================================================================
+// settings page
+// ======================================================================
+const BOOL = [['1', 'On'], ['0', 'Off']];
+const F = {
+    general: [
+        { k: 'tinnoSelfhealEnable', l: 'Self-heal', t: 'sel', o: [['1', 'Enabled'], ['0', 'Disabled']], hint: 'Master switch for the connectivity and throughput tests.' },
+        { k: 'tinnoLogUploadServer', l: 'TFTP log server', t: 'text', ph: 'empty = keep logs on the modem', empty: true },
+        { k: 'tinnoCmDoc31AccessSshEnable', l: 'SSH access (CM side)', t: 'sel', o: [['1', 'Enabled'], ['0', 'Disabled']], hint: 'Anomaly details and the AD test turn it on briefly by themselves.' },
+    ],
+    rm: [
+        { k: 'tinnoADEnable', l: 'Status', t: 'sel', o: [['1', 'Enabled'], ['0', 'Disabled']] },
+        { k: 'tinnoADNewProcCPUThreshold', l: 'New-process CPU limit', t: 'num', min: 1, max: 100, u: '%', hint: 'For processes the model has not learned yet.' },
+        { k: 'tinnoADNewProcMemThreshold', l: 'New-process memory limit', t: 'num', min: 1, max: 100, u: '%' },
+        { k: 'tinnoADCorrectiveActionEnable', l: 'Corrective action', t: 'sel', o: [['0', 'Off – detect and report only'], ['1', 'On – kill new processes over the limit']],
+        confirm: v => v === '1' ? 'With corrective action on, Anomaly Detection kills new processes that stay over the new-process limits. Protected system processes are never killed.' : null },
+    ],
+    conn: [
+        { k: 'tinnoSHConnTestEnable', l: 'Status', t: 'sel', o: [['1', 'Enabled'], ['0', 'Disabled']] },
+        { k: 'tinnoConnTestPingInterval', l: 'Interval', t: 'num', min: 1, max: 1440, u: 'min' },
+        { k: 'tinnoIPv4PingServer', l: 'IPv4 ping server', t: 'text', ph: '8.8.8.8' },
+        { k: 'tinnoIPv6PingServer', l: 'IPv6 ping server', t: 'text', ph: '2001:4860:4860::8888' },
+        { k: 'tinnoConnTestCorrectiveAction', l: 'On failure', t: 'sel', o: [['1', 'Collect logs and reboot'], ['0', 'Collect logs only']] },
+        { k: 'tinnoMaxConnRebootCount', l: 'Max reboots per day', t: 'num', min: 0, max: 100 },
+    ],
+    tput: [
+        { k: 'tinnoSHSpeedTestEnable', l: 'Status', t: 'sel', o: [['1', 'Enabled'], ['0', 'Disabled']] },
+        { k: 'tinnoSHSpeedTestInterval', l: 'Interval', t: 'num', min: 1, max: 10080, u: 'min' },
+        { k: 'tinnoSHSpeedTestThreshold', l: 'Low-throughput threshold', t: 'num', min: 1, max: 10000, u: 'Mbps' },
+        { k: 'tinnoSpeedtestUrl', l: 'Speed test server', t: 'text', ph: 'e.g. 192.168.1.10', empty: true },
+        { k: 'tinnoSpeedtestServerPort', l: 'Server port', t: 'num', min: 0, max: 65535 },
+    ],
+};
+const FIELDS = {};
+function fieldHtml(f) {
+    FIELDS[f.k] = f;
+    let ctl;
+    if (f.t === 'sel') ctl = `<select id="f_${f.k}">${f.o.map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join('')}</select>`;
+    else ctl = `<input id="f_${f.k}" type="${f.t === 'num' ? 'number' : 'text'}" ${f.t === 'num' ? `min="${f.min}" max="${f.max}" step="1"` : ''} placeholder="${esc(f.ph || '')}">`;
+    return `<div class="field" id="w_${f.k}"><label for="f_${f.k}">${esc(f.l)}</label>
+        <div class="inp">${ctl}${f.u ? `<span class="unit">${esc(f.u)}</span>` : ''}</div>${f.hint ? `<div class="hint">${esc(f.hint)}</div>` : ''}</div>`;
+}
+function groupHtml(list) {
+    let html = '', open = false;
+    list.forEach(f => {
+        if (f.g) { if (open) html += '</div>'; html += `<div class="fgroup ${open ? 'sub' : ''}"><div class="gtitle">${esc(f.g)}</div>`; open = true; return; }
+        if (!open) { html += '<div class="fgroup">'; open = true; }
+        html += fieldHtml(f);
+    });
+    return html + (open ? '</div>' : '');
+}
+function buildSettings() {
+    $('setGeneral').innerHTML = F.general.map(fieldHtml).join('');
+    $('setRm').innerHTML = groupHtml(F.rm);
+    $('setConn').innerHTML = groupHtml(F.conn);
+    $('setTput').innerHTML = groupHtml(F.tput);
+    Object.keys(FIELDS).forEach(k => {
+        const el = $('f_' + k);
+        el.addEventListener('input', () => markDirty(k));
+        el.addEventListener('change', () => markDirty(k));
+    });
+}
+let SAVED = {};   // value from the modem
+function markDirty(k) {
+    const el = $('f_' + k), w = $('w_' + k);
+    const dirty = String(el.value).trim() !== String(SAVED[k] ?? '');
+    w.classList.toggle('dirty', dirty); w.classList.remove('saved', 'err');
+    const n = document.querySelectorAll('.field.dirty').length;
+    $('saveTxt').textContent = plural(n, 'unsaved change');
+    $('savebar').classList.toggle('show', n > 0 && PAGE === 'settings');
+}
+function fillSettings(values) {
+    Object.keys(FIELDS).forEach(k => {
+        const val = values[k];
+        if (val === null || val === undefined) return;
+        SAVED[k] = val;
+        const el = $('f_' + k);
+        if (!$('w_' + k).classList.contains('dirty') && document.activeElement !== el) el.value = val;
+    });
+}
+function discardChanges() {
+    document.querySelectorAll('.field.dirty').forEach(w => {
+        const k = w.id.slice(2); $('f_' + k).value = SAVED[k] ?? ''; w.classList.remove('dirty');
+    });
+    $('savebar').classList.remove('show');
+}
+
+// styled replacement for the browser's confirm(): resolves true (Save) or false (Cancel / Esc / click outside)
+function askConfirm(title, text) {
+    return new Promise(resolve => {
+        const m = $('modal');
+        $('modalTitle').textContent = title; $('modalText').textContent = text;
+        const done = ok => { m.classList.remove('open'); m.onclick = $('modalYes').onclick = $('modalNo').onclick = null;
+                             document.removeEventListener('keydown', key); resolve(ok); };
+        const key = e => { if (e.key === 'Escape') done(false); };
+        $('modalYes').onclick = () => done(true); $('modalNo').onclick = () => done(false);
+        m.onclick = e => { if (e.target === m) done(false); };
+        document.addEventListener('keydown', key);
+        m.classList.add('open'); $('modalNo').focus();
+    });
+}
+
+async function saveChanges() {
+    const keys = [...document.querySelectorAll('.field.dirty')].map(w => w.id.slice(2));
+    for (const k of keys) {
+        const f = FIELDS[k], v = $('f_' + k).value.trim();
+        if (!v && !f.empty) { $('w_' + k).classList.add('err'); toast(false, `${f.l}: enter a value.`); return; }
+        if (f.confirm) { const q = f.confirm(v); if (q && !(await askConfirm(f.l, q))) return; }
+    }
+    $('saveBtn').disabled = true;
+    let failed = 0;
+    for (const k of keys) {
+        const w = $('w_' + k), v = $('f_' + k).value.trim();
+        try {
+            const r = await (await fetch('/api/snmpset', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                                          body: JSON.stringify({ oid_name: k, value: v }) })).json();
+            if (r.status !== 'success') throw new Error(r.error);
+            SAVED[k] = v; w.classList.remove('dirty'); w.classList.add('saved');
+        } catch (e) { failed++; w.classList.remove('dirty'); w.classList.add('err'); toast(false, `${FIELDS[k].l}: ${e.message}`); }
+    }
+    $('saveBtn').disabled = false;
+    const n = document.querySelectorAll('.field.dirty').length;
+    $('savebar').classList.toggle('show', n > 0);
+    if (!failed) toast(true, `${plural(keys.length, 'setting')} saved.`);
+    fetchState();
+}
+
+// ======================================================================
+let PAGE = 'health';
+function showPage(p) {
+    PAGE = p;
+    $('savebar').classList.toggle('show', p === 'settings' && document.querySelectorAll('.field.dirty').length > 0);
+    ['health', 'settings'].forEach(x => { $('page-' + x).style.display = x === p ? '' : 'none'; $('tab-' + x).classList.toggle('active', x === p); });
+    try { history.replaceState(null, '', '#' + p); } catch (e) {}
+}
+buildSettings(); initCharts();
+showPage(location.hash === '#settings' ? 'settings' : 'health');
+fetchState(); updateCharts(); pollAdTest();
+setInterval(fetchState, 15000);
+setInterval(updateCharts, 10000);
+</script>
+</body>
+</html>

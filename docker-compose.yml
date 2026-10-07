@@ -1,0 +1,16 @@
+services:
+  selfheal-dashboard:
+    image: selfheal-dashboard:latest
+    build: .
+    container_name: selfheal-dashboard
+    ports:
+      - "5050:5050"
+    environment:
+      SNMP_HOST: 192.168.100.1
+      SNMP_COMMUNITY: public
+      SNMP_WRITE_COMMUNITY: private
+      # for the Device Tests tab
+      SSH_USERNAME: root
+      SSH_PASSWORD: ""
+    restart: unless-stopped
+    

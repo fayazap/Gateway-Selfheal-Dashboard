@@ -1,0 +1,11 @@
+{
+    "cm_ip": "192.168.246.76",
+    "snmp_community": "public",
+    "snmp_write_community": "public",
+    "snmp_version": "2c",
+    "snmp_port": 161,
+    "snmp_instance": 2,
+    "ssh_username": "root",
+    "ssh_password": "tInNo551@Cm",
+    "ssh_port": 22
+}

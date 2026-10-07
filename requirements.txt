@@ -1,0 +1,6 @@
+flask
+# paramiko 5.x removed the "ssh-rsa" host-key type; the modem's Dropbear may
+# only offer that, so stay on 4.0.0.
+paramiko==4.0.0
+# desktop (Windows .exe) build only
+pywebview; sys_platform == "win32"

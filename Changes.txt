@@ -1,0 +1,76 @@
+v4 - new look (reference palette)
+- Light theme only: sky-blue to green backdrop, white app frame, light grey top bar with
+  icon tabs, white summary strip with a blue accent, white cards on a light grey section
+  with green / blue top edges. Exo 2 typography. Chart colours green (CPU) and blue
+  (memory), checked for contrast and colour-blind separation.
+- Summary strip on Health: device facts and function status, live CPU / memory meters with
+  the self-heal safety net, and the usage chart.
+- Anomaly list falls back to the AD log uploads when patch 1048 is not on the modem yet
+  (the events list and the anomaly list now agree).
+- Fixed: "No anomalies" wrapping one word per line; layout on narrow screens.
+- Removed the dark theme and its toggle.
+
+v3 - calmer layout, new palette
+- Graphite + indigo palette (dark) / white + indigo (light); chart colors teal (CPU) and
+  violet (memory), checked for colour-blind separation and contrast in both themes.
+- Health: each part shows only its status, one headline and one or two lines; the
+  configuration lists moved to Settings. Resource Monitoring shows the 4 latest anomalies
+  (show all on demand); the usage chart and top processes are folded away. Events show the
+  5 latest (show all on demand). Fewer borders, labels and badges throughout.
+- Anomaly details panel: only the useful process fields (state, RSS, threads, open files,
+  parent, run time).
+
+v2 - two-page redesign
+- Two pages: Health (Resource Monitoring / Connectivity Test / Throughput Test + events)
+  and Settings (same three parts + General). Dark theme by default, light theme toggle.
+- Anomaly Detection is the resource monitor; self-heal CPU/memory thresholds are shown as
+  the safety net.
+- Anomaly list (tinnoADAnomalyHistory) with a details panel per anomaly: rule that fired,
+  usage before detection, process state, action, log upload. Full report read over SSH
+  from /log/anomaly_logs/reports/ and cached locally.
+- Model state (tinnoADModelStatus / tinnoADModelDays).
+- Run speed test now (tinnoSpeedtestStart) with live status.
+- Settings: one Save for all changed fields, changed/saved/failed marked per field.
+- Removed the self-heal memory test and the Device Tests page; the AD test is in the
+  Resource Monitoring part.
+
+v1 - D4.0 changes (from the D3.1 dashboard)
+
+OIDs / data
+- D4.0 TINNO-MIB column numbers: tinnoLogUploadServer is .75 (was tinnoSHtftpserver .53),
+  tinnoLogUploaderStatus is .76 (was .54); Anomaly Detection objects .58-.74 added.
+- The whole tinnoCfgEntry row is read with one snmpwalk (was one snmpwalk process per object).
+- tinnoLastRebootReason is shown as the D4.0 trigger token (MEM_THRESHOLD, PING_FAILED, ...);
+  tinnoLastActionTakenTime is parsed from the D4.0 "MM-DD-YY HH:MM:SS" format.
+- tinnoLiveMemoryStat (%) is used for the memory chart and tile.
+
+Summary tab
+- New: Anomaly Detection card (status, anomaly count, new-process limits, corrective action,
+  last anomaly, top processes), log-upload status, reboots today vs daily limits,
+  maintenance window, CPU/memory meters with thresholds, reachability indicator.
+- Self-Healing Events timeline includes the AD upload triggers (AD_CPU_ANOMALY,
+  AD_MEM_ANOMALY, AD_CPU_MEM_ANOMALY), CPU_THRESHOLD_MW, and the last AD anomaly.
+
+Configure tab
+- Added: maintenance window and its thresholds, reboot on breach, daily reboot limits,
+  IPv6 ping server, reboot on connectivity failure, and all AD settings
+  (enable, new-process CPU/MEM limits, corrective action with a confirmation).
+- Values are validated on the server; only whitelisted objects can be SET.
+  Every SET uses instance .2 (removed the per-object ".2 / no .2" special cases).
+
+Device Tests tab
+- Memory leak test replaced: it wrote to a /tmp file (tmpfs is not "used" memory for
+  busybox free on D4.0), compared MB against a KB limit (stopped after the first check),
+  and left the file behind. Now a real test process takes memory to 3% above the
+  threshold, self-heal is set up so it checks within a minute, and the test passes only
+  when self-heal records the breach. Settings are restored.
+- New Anomaly Detection test.
+- SSH access is restored to its previous value (was always forced off); the SSH login and
+  password come from config.json (were hard-coded).
+
+Other fixes
+- Docker: environment variables were ignored (config.json only) and the Windows .exe SNMP
+  tools were used on Linux; both fixed. start.sh no longer passes unused arguments.
+- Page keeps working without internet (charts are skipped instead of breaking the page).
+- First start seeds mem_usage.log (the memory chart log) instead of the unused free_memory.log.
+- Removed the MTA / DQoS settings (the Network Quality code was already disabled).
