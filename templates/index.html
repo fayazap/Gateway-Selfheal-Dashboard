@@ -942,10 +942,10 @@ body {
                                 <div class="row mb-4 align-items-center">
                                     <div class="col-md-4 text-secondary fw-bold">TFTP Log Server</div>
                                     <div class="col-md-6">
-                                        <input type="text" class="form-control border-secondary-subtle" id="tinnoSHtftpserver" data-type="s" placeholder="e.g. 192.168.1.20 (empty to disable)">
+                                        <input type="text" class="form-control border-secondary-subtle" id="tinnoLogUploadServer" data-type="s" placeholder="e.g. 192.168.1.20 (empty to disable)">
                                     </div>
                                     <div class="col-md-2 mt-2 mt-md-0">
-                                        <button type="button" class="btn w-100 text-white" style="background-color: #198754;" onclick="applySingleConfig('tinnoSHtftpserver', 'TFTP Log Server', event)">Update</button>
+                                        <button type="button" class="btn w-100 text-white" style="background-color: #198754;" onclick="applySingleConfig('tinnoLogUploadServer', 'TFTP Log Server', event)">Update</button>
                                     </div>
                                 </div>
 
@@ -1436,7 +1436,7 @@ body {
             return `On ${timestamp}, ${triggerCause(trigger)}, ${uploadOutcome(status)}, and a reboot was triggered.`;
         }
 
-        // Turn one accumulated tinnoLogUploaderStatus entry
+        // Turn one accumulated tinnoLogUploadStatus entry
         // ("<time> - <TRIGGER> - <STATUS>") into a
         // { timestamp, trigger, status, message } self-healing event, or null if
         // the entry can't be parsed. The sentence is composed here from the
@@ -1541,7 +1541,7 @@ body {
 
                 // Process self-healing events. Reboot history
                 // (tinnoHistoricalRebootReason) and diagnostic-log upload
-                // history (tinnoLogUploaderStatus) are both accumulated,
+                // history (tinnoLogUploadStatus) are both accumulated,
                 // comma-split lists of "<time> - ..." entries. A reboot and an
                 // upload from the same trigger are collapsed into one line;
                 // everything else is merged into a single timeline sorted by
@@ -1807,9 +1807,9 @@ body {
         const btn = event.currentTarget;
         const originalHtml = btn.innerHTML;
         const field = document.getElementById(fieldId);
-        // tinnoSHtftpserver accepts an empty string to disable TFTP log upload,
+        // tinnoLogUploadServer accepts an empty string to disable TFTP log upload,
         // so only that field is allowed through the "no value" guard.
-        if (!field || (!field.value && fieldId !== 'tinnoSHtftpserver')) return;
+        if (!field || (!field.value && fieldId !== 'tinnoLogUploadServer')) return;
         
         btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
         btn.disabled = true;

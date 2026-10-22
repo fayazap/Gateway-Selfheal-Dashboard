@@ -67,8 +67,8 @@ OID_LIST = {
     "tinnoSpeedtestUrl": "1.3.6.1.4.1.62596.1.1.1.16.2",
     "tinnoSpeedtestServerPort": "1.3.6.1.4.1.62596.1.1.1.17.2",
     "tinnoSHConnTestEnable": "1.3.6.1.4.1.62596.1.1.1.35.2",
-    "tinnoSHtftpserver": "1.3.6.1.4.1.62596.1.1.1.53.2",
-    "tinnoLogUploaderStatus": "1.3.6.1.4.1.62596.1.1.1.54"
+    "tinnoLogUploadServer": "1.3.6.1.4.1.62596.1.1.1.75.2",
+    "tinnoLogUploadStatus": "1.3.6.1.4.1.62596.1.1.1.76"
 }
 
 VALUE_MAPPINGS = {
@@ -115,8 +115,8 @@ DISPLAY_NAMES = {
     "tinnoSpeedtestUrl": "Speed Test Server",
     "tinnoSpeedtestServerPort": "Speed Test Server Port",
     "tinnoSHConnTestEnable": "Connectivity Test Enable",
-    "tinnoSHtftpserver": "TFTP Log Server",
-    "tinnoLogUploaderStatus": "Diagnostic Log Upload"
+    "tinnoLogUploadServer": "TFTP Log Server",
+    "tinnoLogUploadStatus": "Diagnostic Log Upload"
 }
 
 # SNMP Settings
@@ -377,7 +377,7 @@ def get_snmp_data():
                 )
                 if name == "tinnoHistoricalRebootReason":
                     # Accumulated reboot history, same shape as
-                    # tinnoLogUploaderStatus: "<time> - <TRIGGER>" entries,
+                    # tinnoLogUploadStatus: "<time> - <TRIGGER>" entries,
                     # comma-separated, last 10 retained. Raw trigger tokens are
                     # passed straight through (no phrasing / no mapping here) so
                     # the dashboard can phrase them and correlate each one with a
@@ -388,7 +388,7 @@ def get_snmp_data():
                         value = [e.strip() for e in raw_value.split(",") if e.strip()][:10]
                     else:
                         value = ["No data"]
-                elif name == "tinnoLogUploaderStatus":
+                elif name == "tinnoLogUploadStatus":
                     # Accumulated diagnostic-log upload history, built like
                     # reboot_log.txt: one "<time> - <TRIGGER> - <STATUS>" entry
                     # per upload attempt, comma-separated, last 10 retained.
@@ -427,12 +427,12 @@ def get_snmp_data():
             except subprocess.CalledProcessError as e:
                 logger.error(f"SNMP command failed for {name}: {e}")
                 display_name = DISPLAY_NAMES.get(name, name)
-                error_value = ["Unable to connect to modem"] if name in ("tinnoHistoricalRebootReason", "tinnoLogUploaderStatus") else "Unable to connect to modem"
+                error_value = ["Unable to connect to modem"] if name in ("tinnoHistoricalRebootReason", "tinnoLogUploadStatus") else "Unable to connect to modem"
                 data.append({"name": display_name, "value": error_value})
             except Exception as e:
                 logger.error(f"Unexpected error for {name}: {e}")
                 display_name = DISPLAY_NAMES.get(name, name)
-                error_value = ["Unable to connect to modem"] if name in ("tinnoHistoricalRebootReason", "tinnoLogUploaderStatus") else "Unable to connect to modem"
+                error_value = ["Unable to connect to modem"] if name in ("tinnoHistoricalRebootReason", "tinnoLogUploadStatus") else "Unable to connect to modem"
                 data.append({"name": display_name, "value": error_value})
     except Exception as e:
         logger.error(f"General SNMP error: {e}")
