@@ -11,27 +11,36 @@ from functools import wraps
 import argparse
 
 from utils import log_value, read_log_data
+from snmp_bin_path import get_bin_path
+from config_loader import load_config, save_config, get_config_path
 
-# Set up argument parser. Defaults are just a safety net for an unsupported
-# bare invocation - start.sh (the only entry point this app is actually run
-# through, in Docker or standalone) always passes all four flags explicitly,
-# resolving them from its own env-var defaults, so an os.getenv() layer here
-# would just duplicate that and never actually take effect.
-parser = argparse.ArgumentParser(description="SNMP Modem Monitoring Flask App")
-parser.add_argument("--community", default="dilip-one", help="SNMP community string for read and write (default: dilip-one)")
-parser.add_argument("--host", default="192.168.246.100", help="SNMP host address (default: 192.168.246.100)")
-parser.add_argument("--mta-community", default="private", help="MTA community string (default: private)")
-parser.add_argument("--mta-ip", default="192.168.246.101", help="MTA IP address (default: 192.168.246.101)")
-args = parser.parse_args()
+import os, sys
 
-# Assign arguments to variables
-SNMP_COMMUNITY_READ = args.community
-SNMP_COMMUNITY_WRITE = args.community
-SNMP_HOST = args.host
-MTA_COMMUNITY = args.mta_community
-MTA_IP = args.mta_ip
+def resource_path(*parts):
+    """Path to a bundled read-only resource (templates/, static/). Uses the
+    PyInstaller temp extraction dir when frozen, this file's directory
+    otherwise. This is independent of the process's current working
+    directory, so it keeps working even after desktop.py chdirs elsewhere
+    to make relative log/config writes land next to the .exe instead of in
+    the temp bundle.
+    """
+    base = sys._MEIPASS if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base, *parts)
 
-app = Flask(__name__)
+CONFIG = load_config()
+
+# Assign from CONFIG (replaces old argparse-based assignments)
+SNMP_COMMUNITY_READ = CONFIG["snmp_community"]
+SNMP_COMMUNITY_WRITE = CONFIG.get("snmp_write_community", CONFIG["snmp_community"])
+SNMP_HOST = CONFIG["cm_ip"]
+MTA_COMMUNITY = CONFIG["mta_community"]
+MTA_IP = CONFIG["mta_ip"]
+
+app = Flask(
+    __name__,
+    template_folder=resource_path('templates'),
+    static_folder=resource_path('static'),
+)
 
 # Configure logging
 logging.basicConfig(
@@ -198,13 +207,13 @@ def cause_memory_leak():
                 logger.info(f"Enabling SSH access (Attempt {attempt + 1})...")
                 subprocess.check_output(
                     [
-                        "snmpset", "-v", "2c", "-c", SNMP_COMMUNITY_WRITE, SNMP_HOST,
+                        get_bin_path("snmpset.exe"), "-v", "2c", "-c", SNMP_COMMUNITY_WRITE, SNMP_HOST,
                         OID_LIST["tinnoCmDoc31AccessSshEnable"], "i", "1"
                     ],
                     universal_newlines=True
                 )
                 logger.info("SSH access enabled successfully.")
-                time.sleep(2)
+                time.sleep(8)  # give Dropbear time to start under high CPU load
                 break
             except subprocess.CalledProcessError as e:
                 logger.warning(f"SSH enable attempt {attempt + 1} failed. Reason: {e}")
@@ -224,9 +233,33 @@ def cause_memory_leak():
             try:
                 sock = socket.create_connection((SNMP_HOST, MEMORY_LEAK_PORT), timeout=10)
                 transport = paramiko.Transport(sock)
-                # Allow the legacy host-key types this old Dropbear offers
-                # (paramiko no longer accepts them by default).
-                transport.get_security_options().key_types = MEMORY_LEAK_HOST_KEY_TYPES
+                transport.banner_timeout = 60   # seconds to wait for SSH banner
+                transport.auth_timeout = 30     # seconds to wait for auth response
+                # Old Dropbear SSH servers (2019 era) only offer legacy algorithms
+                # that newer paramiko drops by default. The "unknown cipher" error
+                # is misleading — paramiko raises it for ANY unrecognised algorithm
+                # (kex, cipher, or key-type), not just ciphers. We must explicitly
+                # allow all three algorithm families to connect.
+                sec = transport.get_security_options()
+                sec.key_types = [
+                    "ssh-rsa", "rsa-sha2-256", "rsa-sha2-512",
+                    "ecdsa-sha2-nistp256", "ecdsa-sha2-nistp384", "ecdsa-sha2-nistp521",
+                    "ssh-ed25519",
+                ]
+                sec.kex = [
+                    "diffie-hellman-group14-sha256",
+                    "diffie-hellman-group14-sha1",
+                    "diffie-hellman-group-exchange-sha256",
+                    "diffie-hellman-group-exchange-sha1",
+                    "diffie-hellman-group1-sha1",
+                    "ecdh-sha2-nistp256",
+                    "ecdh-sha2-nistp384",
+                    "ecdh-sha2-nistp521",
+                ]
+                sec.ciphers = [
+                    "aes128-ctr", "aes192-ctr", "aes256-ctr",
+                    "aes128-cbc", "aes256-cbc", "3des-cbc",
+                ]
                 transport.connect(username=MEMORY_LEAK_USERNAME, password=MEMORY_LEAK_PASSWORD)
                 ssh._transport = transport
                 logger.info("SSH connection established successfully.")
@@ -330,7 +363,7 @@ def cause_memory_leak():
                 logger.info(f"Disabling SSH access (Attempt {attempt + 1})...")
                 subprocess.check_output(
                     [
-                        "snmpset", "-v", "2c", "-c", SNMP_COMMUNITY_WRITE, SNMP_HOST,
+                        get_bin_path("snmpset.exe"), "-v", "2c", "-c", SNMP_COMMUNITY_WRITE, SNMP_HOST,
                         OID_LIST["tinnoCmDoc31AccessSshEnable"], "i", "0"
                     ],
                     universal_newlines=True
@@ -372,7 +405,7 @@ def get_snmp_data():
         for name, oid in OID_LIST.items():
             try:
                 result = subprocess.check_output(
-                    ["snmpwalk", "-v", "2c", "-c", SNMP_COMMUNITY_READ, SNMP_HOST, oid],
+                    [get_bin_path("snmpwalk.exe"), "-v", "2c", "-c", SNMP_COMMUNITY_READ, SNMP_HOST, oid],
                     universal_newlines=True
                 )
                 if name == "tinnoHistoricalRebootReason":
@@ -454,7 +487,7 @@ def set_qos_direction():
         adjusted = False
         try:
             subprocess.check_output(
-                ["snmpset", "-v", "2c", "-c", MTA_COMMUNITY, MTA_IP, DEVICE_DQOS_OID, "i", desired_value],
+                [get_bin_path("snmpset.exe"), "-v", "2c", "-c", MTA_COMMUNITY, MTA_IP, DEVICE_DQOS_OID, "i", desired_value],
                 universal_newlines=True
             )
             logger.info(
@@ -472,7 +505,7 @@ def set_qos_direction():
         qos_display = "Enabled" if discards_present else "Disabled"
         try:
             qos_result = subprocess.check_output(
-                ["snmpwalk", "-v", "2c", "-c", MTA_COMMUNITY, MTA_IP, DEVICE_DQOS_OID],
+                [get_bin_path("snmpwalk.exe"), "-v", "2c", "-c", MTA_COMMUNITY, MTA_IP, DEVICE_DQOS_OID],
                 universal_newlines=True
             )
             qos_match = re.search(r"= INTEGER: (\d+)", qos_result)
@@ -501,16 +534,22 @@ def set_qos_direction():
         }
 
 def run_snmp_integer(oid):
+    # Use snmpget for instance OIDs (ending in a digit after the last dot,
+    # e.g. .13.2) — snmpwalk does GETNEXT which walks past the instance
+    # to the next OID, returning the wrong value.
+    parts = oid.rstrip(".").split(".")
+    use_get = parts[-1].isdigit() and len(parts) > 1 and parts[-2].isdigit()
+    bin_name = "snmpget.exe" if use_get else "snmpwalk.exe"
     try:
         output = subprocess.check_output(
-            ["snmpwalk", "-v", "2c", "-c", SNMP_COMMUNITY_READ, SNMP_HOST, oid],
+            [get_bin_path(bin_name), "-v", "2c", "-c", SNMP_COMMUNITY_READ, SNMP_HOST, oid],
             universal_newlines=True,
             stderr=subprocess.STDOUT
         )
         match = re.search(r"=\s*(?:Counter32|INTEGER):\s*(\d+)", output)
         return int(match.group(1)) if match else None
     except FileNotFoundError:
-        logger.error("snmpwalk is not installed or not found in PATH.")
+        logger.error(f"{bin_name} not found in snmp_bin/.")
         return None
     except subprocess.CalledProcessError as e:
         logger.error(f"SNMP command failed for {oid}: {e.output}")
@@ -526,7 +565,7 @@ def get_snmp_raw_value(oid):
     full get_snmp_data() walk of every OID in OID_LIST."""
     try:
         output = subprocess.check_output(
-            ["snmpwalk", "-v", "2c", "-c", SNMP_COMMUNITY_READ, SNMP_HOST, oid],
+            [get_bin_path("snmpwalk.exe"), "-v", "2c", "-c", SNMP_COMMUNITY_READ, SNMP_HOST, oid],
             universal_newlines=True,
             stderr=subprocess.STDOUT
         )
@@ -547,7 +586,7 @@ def get_snmp_raw_value(oid):
 
 def read_wan0_status():
     try:
-        with open('wan0_stats.log', 'r') as file:
+        with open(os.path.join('logs', 'wan0_stats.log'), 'r') as file:
             lines = file.readlines()
             if not lines:
                 logger.warning("wan0_stats.log is empty")
@@ -599,7 +638,7 @@ def read_wan0_status():
             else:
                 logger.warning(f"Invalid format in wan0_stats.log: {content}")
     except FileNotFoundError:
-        logger.error("wan0_stats.log not found")
+        logger.error("logs/wan0_stats.log not found")
     except Exception as e:
         logger.error(f"Error reading wan0_stats.log: {e}")
     return {
@@ -697,11 +736,24 @@ def api_snmpset():
         return jsonify({"error": "Invalid OID"}), 400
         
     oid = OID_LIST[oid_name]
-    if not oid.endswith(".2"):
+
+    # OIDs that already carry a full instance suffix in OID_LIST (the ones
+    # ending in small integers like .2) should be used verbatim.
+    # Scalar OIDs (no instance suffix) need .0 appended for SET.
+    SNMPSET_INSTANCE_OIDS = {
+        "tinnoCmDoc31AccessSshEnable",
+        "tinnoCmDoc31AccessTechnicianPassword",
+        "tinnoSpeedtestUrl",
+        "tinnoSpeedtestServerPort",
+        "tinnoSHConnTestEnable",
+        "tinnoLogUploadServer",
+    }
+
+    if oid_name not in SNMPSET_INSTANCE_OIDS:
         oid += ".2"
         
     cmd = [
-        "snmpset", "-v", "2c", "-c", SNMP_COMMUNITY_WRITE, SNMP_HOST,
+        get_bin_path("snmpset.exe"), "-v", "2c", "-c", SNMP_COMMUNITY_WRITE, SNMP_HOST,
         oid, val_type, str(value)
     ]
     try:

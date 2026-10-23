@@ -2,24 +2,11 @@ import logging
 import time
 import re
 import subprocess
+from snmp_bin_path import get_bin_path
 import platform
-import argparse
 
 from utils import log_value
-
-# Set up argument parser. Defaults are just a safety net for an unsupported
-# bare invocation - start.sh (the only entry point this app is actually run
-# through, in Docker or standalone) always passes both flags explicitly,
-# resolving them from its own env-var defaults, so an os.getenv() layer here
-# would just duplicate that and never actually take effect.
-parser = argparse.ArgumentParser(description="SNMP Modem Statistics Collector")
-parser.add_argument("--community", default="dilip-one", help="SNMP community string (default: dilip-one)")
-parser.add_argument("--host", default="192.168.246.100", help="SNMP host address (default: 192.168.246.100)")
-args = parser.parse_args()
-
-# Assign arguments to variables
-SNMP_COMMUNITY_READ = args.community
-SNMP_HOST = args.host
+from config_loader import load_config
 
 logging.basicConfig(level=logging.INFO)
 
@@ -58,20 +45,25 @@ def parse_throughput(snmp_output):
     return None
 
 def parse_packet_counts(snmp_output):
-    """Parse ifInUcastPkts, ifOutUcastPkts, ifInDiscards, and ifOutDiscards from SNMP output."""
-    in_match = re.search(r"(?:IF-MIB::ifInUcastPkts\.2|iso\.3\.6\.1\.2\.1\.2\.2\.1\.11\.2)\s*=\s*Counter32:\s*(\d+)", snmp_output)
-    out_match = re.search(r"(?:IF-MIB::ifOutUcastPkts\.2|iso\.3\.6\.1\.2\.1\.2\.2\.1\.17\.2)\s*=\s*Counter32:\s*(\d+)", snmp_output)
-    in_discards_match = re.search(r"(?:IF-MIB::ifInDiscards\.2|iso\.3\.6\.1\.2\.1\.2\.2\.1\.13\.2)\s*=\s*Counter32:\s*(\d+)", snmp_output)
-    out_discards_match = re.search(r"(?:IF-MIB::ifOutDiscards\.2|iso\.3\.6\.1\.2\.1\.2\.2\.1\.19\.2)\s*=\s*Counter32:\s*(\d+)", snmp_output)
-    if in_match and out_match and in_discards_match and out_discards_match:
-        return (
-            int(in_match.group(1)),
-            int(out_match.group(1)),
-            int(in_discards_match.group(1)),
-            int(out_discards_match.group(1))
-        )
-    logging.warning("Could not parse packet counts from SNMP output")
-    logging.info(f"Raw SNMP output for packet counts: {repr(snmp_output)}")  # Log raw output for debugging
+    """Parse a single counter value from snmpget output.
+    snmpget returns exactly one OID per call, so we just extract the integer
+    from whichever Counter32/INTEGER line is present."""
+    # Matches both snmpget and snmpwalk output formats:
+    #   IF-MIB::ifInUcastPkts.2 = Counter32: 12345
+    #   iso.3.6.1.2.1.2.2.1.11.2 = Counter32: 12345
+    match = re.search(r"=\s*(?:Counter32|INTEGER):\s*(\d+)", snmp_output)
+    if match:
+        return int(match.group(1))
+    logging.warning(f"Could not parse counter from SNMP output: {repr(snmp_output)}")
+    return None
+
+
+def parse_wan_packets(outputs):
+    """Parse WAN packet counts from a list of four snmpget outputs
+    (in_packets, out_packets, in_discards, out_discards)."""
+    results = [parse_packet_counts(o) for o in outputs]
+    if all(v is not None for v in results):
+        return tuple(results)
     return None, None, None, None
 
 def check_host_reachability(hostname):
@@ -92,20 +84,20 @@ def check_host_reachability(hostname):
         logging.error(f"Ping to {hostname} failed: {e.stderr}")
         return False
 
-def get_modem_stats(hostname=SNMP_HOST):
+def get_modem_stats(hostname, community):
     results = {}
     is_reachable = check_host_reachability(hostname)
     ip_address = hostname if is_reachable else "Unknown"
 
     snmp_commands = {
-        "CPU Usage": ["snmpwalk", "-v", "2c", "-c", SNMP_COMMUNITY_READ, hostname, "1.3.6.1.4.1.62596.1.1.1.51"],
-        "Memory Usage": ["snmpwalk", "-v", "2c", "-c", SNMP_COMMUNITY_READ, hostname, "1.3.6.1.4.1.62596.1.1.1.52"],
-        "Throughput": ["snmpwalk", "-v", "2c", "-c", SNMP_COMMUNITY_READ, hostname, "1.3.6.1.4.1.62596.1.1.1.24"],
+        "CPU Usage": [get_bin_path("snmpwalk.exe"), "-v", "2c", "-c", community, hostname, "1.3.6.1.4.1.62596.1.1.1.51"],
+        "Memory Usage": [get_bin_path("snmpwalk.exe"), "-v", "2c", "-c", community, hostname, "1.3.6.1.4.1.62596.1.1.1.52"],
+        "Throughput": [get_bin_path("snmpwalk.exe"), "-v", "2c", "-c", community, hostname, "1.3.6.1.4.1.62596.1.1.1.24"],
         "WAN0 Packets": [
-            ["snmpwalk", "-v", "2c", "-c", SNMP_COMMUNITY_READ, hostname, "1.3.6.1.2.1.2.2.1.11.2"],
-            ["snmpwalk", "-v", "2c", "-c", SNMP_COMMUNITY_READ, hostname, "1.3.6.1.2.1.2.2.1.17.2"],
-            ["snmpwalk", "-v", "2c", "-c", SNMP_COMMUNITY_READ, hostname, "1.3.6.1.2.1.2.2.1.13.2"],
-            ["snmpwalk", "-v", "2c", "-c", SNMP_COMMUNITY_READ, hostname, "1.3.6.1.2.1.2.2.1.19.2"]
+            [get_bin_path("snmpget.exe"), "-v", "2c", "-c", community, hostname, "1.3.6.1.2.1.2.2.1.11.2"],
+            [get_bin_path("snmpget.exe"), "-v", "2c", "-c", community, hostname, "1.3.6.1.2.1.2.2.1.17.2"],
+            [get_bin_path("snmpget.exe"), "-v", "2c", "-c", community, hostname, "1.3.6.1.2.1.2.2.1.13.2"],
+            [get_bin_path("snmpget.exe"), "-v", "2c", "-c", community, hostname, "1.3.6.1.2.1.2.2.1.19.2"]
         ]
     }
 
@@ -218,13 +210,14 @@ def get_modem_stats(hostname=SNMP_HOST):
         log_value("throughput.log", results["Throughput"], "Mbps", is_last_known=True)
         print(f"\n[OUTPUT] Throughput:\n{results['Throughput']} Mbps (last known)")
 
-    # WAN0 Packets
+    # WAN0 Packets — each OID fetched with snmpget (direct GET) to avoid
+    # snmpwalk walking past the .2 instance to the next interface index
     try:
-        combined_output = ""
+        wan_outputs = []
         for cmd in snmp_commands["WAN0 Packets"]:
             result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-            combined_output += result.stdout + "\n"
-        in_packets, out_packets, in_discards, out_discards = parse_packet_counts(combined_output)
+            wan_outputs.append(result.stdout)
+        in_packets, out_packets, in_discards, out_discards = parse_wan_packets(wan_outputs)
         if None not in (in_packets, out_packets, in_discards, out_discards):
             results["WAN0 Packets"] = f"RX packets:{in_packets} TX packets:{out_packets}"
             results["WAN0 Dropped Packets"] = f"RX dropped:{in_discards} TX dropped:{out_discards}"
@@ -263,13 +256,20 @@ def get_modem_stats(hostname=SNMP_HOST):
 
     return results
 
-if __name__ == "__main__":
+def run_monitor_loop(poll_interval=5):
+    """Poll forever. Re-reads config.json each iteration so a device IP or
+    community changed via the dashboard's Settings takes effect on this
+    loop's very next poll, without needing to restart the app."""
     try:
         while True:
-            get_modem_stats()
-            logging.info("Waiting 5 seconds before next poll...")
-            time.sleep(5)
+            cfg = load_config()
+            get_modem_stats(cfg["cm_ip"], cfg["snmp_community"])
+            logging.info(f"Waiting {poll_interval} seconds before next poll...")
+            time.sleep(poll_interval)
     except KeyboardInterrupt:
-        logging.info("Script terminated by user.")
+        logging.info("Monitor loop terminated by user.")
     except Exception as e:
-        logging.error(f"Script terminated due to error: {e}")
+        logging.error(f"Monitor loop terminated due to error: {e}")
+
+if __name__ == "__main__":
+    run_monitor_loop()

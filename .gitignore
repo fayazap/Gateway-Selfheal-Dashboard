@@ -18,3 +18,9 @@ build/
 
 # Docker
 *.pid
+
+# Python / PyInstaller
+__pycache__/
+*.pyc
+*.zip
+logs/

@@ -1,0 +1,12 @@
+{
+    "cm_ip": "192.168.0.1",
+    "snmp_community": "public",
+    "snmp_write_community": "private",
+    "snmp_version": "2c",
+    "snmp_port": 161,
+    "mta_community": "dilip-one",
+    "mta_ip": "192.168.246.73",
+    "ssh_username": "root",
+    "ssh_password": "tInNo551@Cm",
+    "ssh_port": 22
+}

@@ -2,7 +2,7 @@
 
 Consolidates the log_value()/read_log_data() pair that used to be defined
 (with slightly different signatures) in each file, and adds rotation/tailing
-so the plain-text log files (cpu_usage.log, mem_usage.log, throughput.log,
+so the plain-text log files (cpu_usage.log, free_memory.log, throughput.log,
 memory_leak_modem.log, ...) don't grow forever and don't need to be parsed in
 full just to read the most recent points.
 """
@@ -11,10 +11,19 @@ import datetime
 import logging
 import logging.handlers
 from collections import deque
+import os
 
 # One RotatingFileHandler-backed logger per log file, created on first use.
 _line_loggers = {}
 
+LOGS_DIR = "logs"
+os.makedirs(LOGS_DIR, exist_ok=True)
+
+def _log_path(filename):
+    """Resolve filename relative to LOGS_DIR unless it's already absolute."""
+    if os.path.isabs(filename):
+        return filename
+    return os.path.join(LOGS_DIR, filename)
 
 def _get_line_logger(filename, max_bytes=1_000_000, backup_count=3):
     """Return a cached logger that appends plain 'message\\n' lines to
@@ -41,6 +50,7 @@ def log_value(filename, value, unit, overwrite=False, is_last_known=False):
     single-line "current status" files like wan0_stats.log. is_last_known
     just annotates the line so it's visible that the value is stale.
     """
+    filename = _log_path(filename)
     try:
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         note = " (last known)" if is_last_known else ""
@@ -57,6 +67,7 @@ def read_log_data(filename, max_points=20):
     """Read at most the last max_points valid data points from a log file,
     without parsing the whole file (the file only ever grows via log_value,
     so the newest points are always at the end)."""
+    filename = _log_path(filename)
     data = []
     log = logging.getLogger(__name__)
     try:
