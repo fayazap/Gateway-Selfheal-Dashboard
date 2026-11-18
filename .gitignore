@@ -1,0 +1,26 @@
+# dependencies and build output
+node_modules/
+server/public/
+installer/staging/
+installer/build/
+installer/output/
+
+# runtime data (job history, catalogue cache)
+server/data/
+data/
+
+# secrets: never commit these
+config.json
+*.har
+.env
+.env.*
+*.pem
+*.key
+lcm-secrets/
+
+# editors / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

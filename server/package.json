@@ -1,0 +1,16 @@
+{
+  "name": "lcm-dashboard-server",
+  "version": "0.5.1",
+  "private": true,
+  "description": "LCM App Store dashboard backend - Phase 1 GitLab catalogue + Phase 3 Oktopus devices and jobs",
+  "type": "module",
+  "engines": {
+    "node": ">=22.6"
+  },
+  "scripts": {
+    "start": "node --experimental-strip-types src/main.ts",
+    "catalogue": "node --experimental-strip-types scripts/catalogue.ts",
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "demo": "node --experimental-strip-types scripts/demo.ts"
+  }
+}

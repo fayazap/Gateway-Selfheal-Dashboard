@@ -1,0 +1,13 @@
+{
+  "GITLAB_GROUP": "tinno-lcm",
+  "GITLAB_TOKEN": "<GitLab token with read_api>",
+  "OKTOPUS_URL": "https://tinno.oktopus.app.br",
+  "OKTOPUS_EMAIL": "<Oktopus service account e-mail>",
+  "OKTOPUS_PASSWORD": "<Oktopus service account password>",
+  "REGISTRY_USERNAME": "gitlab+deploy-token-<number>",
+  "REGISTRY_PASSWORD": "<GitLab deploy token (gldt-...)>",
+  "LCM_ACCESS_CODE": "",
+  "LCM_ALLOWED_SNS": "ZT2607000024",
+  "LCM_DEVICE_HW": "wan",
+  "LCM_AUTH": "serial"
+}
